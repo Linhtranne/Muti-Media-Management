@@ -20,7 +20,10 @@ Khuyến nghị: 1 tuần.
 | S0-06 | Thiết kế Function Logic Register | PM/Tech Lead | Register template + initial flows | Mỗi chức năng chính có FL entry |
 | S0-07 | Thống nhất Git/Coding convention | Tech Lead | Convention doc | Branch/commit/PR rule rõ |
 | S0-08 | Chuẩn bị Test/Bug templates | Tester | Test/Bug template | Dùng được trong Sprint 1 |
-| S0-09 | Xác nhận tool/account | Admin/IT | Access checklist | Airtable/Slack/Meta/InsForge owner rõ |
+| S0-09 | Xác nhận tool/account | Admin/IT | Access checklist | Airtable/Slack/Meta/InsForge/RabbitMQ owner rõ |
+| S0-10 | Chốt RabbitMQ deployment mode | Tech Lead/Admin | Queue deployment decision | Docker Compose dev/staging, CloudAMQP production |
+| S0-11 | Chốt owner Sprint 1 | PO/PM | Ownership matrix | Airtable/Notion/Webhook owner rõ |
+| S0-12 | Chốt webhook deployment path | Tech Lead/Admin | Dev/staging path | Phase A local ngrok, Phase B Railway/Render |
 
 ## Sprint 0 Review Checklist
 
@@ -32,4 +35,4 @@ Khuyến nghị: 1 tuần.
 
 ## Sprint 1 Candidate Goal
 
-Thiết lập Airtable Control Plane, webhook receiver và Operational Ledger schema để nhận Post Approved event một cách idempotent.
+Thiết lập Airtable Control Plane, Notion Knowledge Plane, RabbitMQ Event Bus, webhook receiver và Operational Ledger schema để nhận Post Approved event một cách idempotent.

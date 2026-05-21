@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@mediaops/shared-contracts": ["../../packages/shared-contracts/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

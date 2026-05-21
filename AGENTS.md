@@ -9,10 +9,10 @@ MediaOps Composability — Multi-channel media operations platform. Architecture
 ## 1. Before Coding: Read Project Docs
 
 Before any implementation:
-1. Read `docs/06_Architecture_Composability.md` for system architecture
-2. Read `docs/11_Coding_Convention.md` for code rules
-3. Read `docs/05_Function_Flow_Logic_Register.md` for the function you're implementing
-4. Check `docs/04_Product_Backlog.md` for acceptance criteria
+1. Read `docs/architecture/06_Architecture_Composability.md` for system architecture
+2. Read `docs/architecture/11_Coding_Convention.md` for code rules
+3. Read `docs/requirements/05_Function_Flow_Logic_Register.md` for the function you're implementing
+4. Check `docs/requirements/04_Product_Backlog.md` for acceptance criteria
 
 ## 2. Code Rules
 
@@ -80,3 +80,86 @@ Additional specialist knowledge lives in `.agent/agents/` and `.agent/skills/`. 
 - No abstractions for single-use code.
 - If you write 200 lines and it could be 50, rewrite it.
 - Touch only what you must. Don't "improve" adjacent code.
+
+## 6. Pre-Work: Read Project Docs First (MANDATORY)
+
+**Before implementing ANY task, you MUST read relevant project docs.**
+
+Required reading (in order):
+
+| Priority | Document | What to look for |
+|:---|:---|:---|
+| **P0** | `docs/architecture/06_Architecture_Composability.md` | Which layer? What boundaries? |
+| **P0** | `docs/architecture/11_Coding_Convention.md` | Code rules, naming, file structure |
+| **P1** | `docs/requirements/04_Product_Backlog.md` | Acceptance criteria for the User Story |
+| **P1** | `docs/requirements/05_Function_Flow_Logic_Register.md` | Function-level logic, triggers, flow |
+| **P2** | `docs/project-mgmt/07_Risk_Assumption_Decision_Log.md` | Decisions made, risks to avoid |
+| **P2** | `docs/requirements/03_SRS_MediaOps_Composability.md` | NFRs, security constraints |
+
+**Rules:**
+- If a `docs/plans/PLAN-{task-slug}.md` exists for the task, read it FIRST.
+- Don't just open docs — extract constraints and apply them.
+- If docs contradict: Architecture > Coding Convention > Backlog.
+- Mention which docs you read before starting implementation.
+
+## 7. Post-Work: Generate Report (MANDATORY)
+
+**After completing ANY task, create a report file.**
+
+**File:** `docs/reports/REPORT-{task-slug}-{YYYY-MM-DD}.md`
+
+**Report MUST include these sections:**
+
+```markdown
+# Report: {Task Title}
+
+**Date:** {YYYY-MM-DD}
+**Agent(s) Used:** {agent/model names}
+**Related User Story:** {US-XXX}
+**Status:** Completed / Partial / Blocked
+
+## Summary
+Brief description of what was accomplished.
+
+## What Was Done
+- [ ] Item 1: description
+- [ ] Item 2: description
+
+## How It Was Done
+### Approach
+Description of the technical approach taken.
+
+### Tools & Skills Used
+| Tool/Skill | Purpose |
+|:---|:---|
+| {tool name} | {what it was used for} |
+
+### Files Changed
+| File | Action | Description |
+|:---|:---|:---|
+| {path} | Created/Modified/Deleted | {what changed} |
+
+## Impact & Purpose
+What does this change achieve? How does it fit into the system?
+
+## Decisions Made
+| Decision | Rationale | Alternatives Considered |
+|:---|:---|:---|
+| {decision} | {why} | {other options} |
+
+## Verification
+- [ ] Tests passed
+- [ ] Docs updated
+- [ ] No secrets exposed
+- [ ] Acceptance criteria met: {list which ACs}
+
+## Open Items / Next Steps
+- {any remaining work}
+```
+
+**Rules:**
+- Report is NOT optional. Every completed task MUST have a report.
+- Report file must be committed alongside the code changes.
+- If task spans multiple sessions, update the same report file.
+- Keep reports factual — no speculation, no filler.
+

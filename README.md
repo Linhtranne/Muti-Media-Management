@@ -11,6 +11,12 @@ Tài liệu này là mục lục làm việc chính của dự án. Quy trình t
 - `05_Function_Flow_Logic_Register.md`: file ghi toàn bộ luồng và logic từng chức năng, cập nhật mỗi lần code.
 - `06_Architecture_Composability.md`: kiến trúc Control Plane, Orchestration, MCP Execution, RabbitMQ Event Bus, Communication, Operational Ledger.
 - `07_Risk_Assumption_Decision_Log.md`: quyết định, giả định, rủi ro, câu hỏi mở.
+- `08_Sprint_0_Plan.md`: kế hoạch Sprint 0 và candidate goal cho Sprint 1.
+- `09_Airtable_Schema_Spec.md`: schema Airtable Control Plane.
+- `10_Test_Case_And_Bug_Report_Template.md`: template test case và bug report.
+- `11_Coding_Convention.md`: quy ước code, branch, commit, PR.
+- `12_Notion_Workspace_Spec.md`: schema Notion Knowledge & Brief Plane.
+- `13_Sprint_1_Backlog.md`: Sprint 1 backlog cho Control Plane/Event foundation.
 
 ## Quy tắc cập nhật
 

@@ -10,6 +10,8 @@
 | D-004 | 2026-05-20 | Facebook Page là execution platform đầu tiên | Phù hợp thị trường Việt Nam và scope publish/comment | Accepted |
 | D-005 | 2026-05-20 | Slack trước Teams | Slack slash command đơn giản hơn cho MVP; Teams phase sau | Accepted |
 | D-006 | 2026-05-20 | RabbitMQ dùng Docker Compose cho dev/staging, CloudAMQP (managed) cho production | Docker Compose đơn giản cho dev, không cần ops phức tạp; CloudAMQP free tier đủ cho MVP traffic; tránh tự quản lý RabbitMQ cluster trên production | Accepted |
+| D-007 | 2026-05-20 | Webhook receiver Sprint 1 triển khai 2 phase | Phase A local Node.js + ngrok ở tuần 1 để bắt payload thật; Phase B Railway/Render container ở tuần 2+ để có URL ổn định, RabbitMQ và Ledger | Accepted |
+| D-008 | 2026-05-20 | Ownership Sprint 1 đã chốt | Airtable Base: Product Owner/Social Media Manager; Notion Workspace: Product Owner/BA; Airtable Webhook config: Tech Lead/Admin | Accepted |
 
 ## Assumptions
 
@@ -41,3 +43,5 @@
 | Q-004 | Danh sách forbidden terms/legal keywords ban đầu là gì? | BA/Marketing | Sprint 2 |
 | Q-005 | Ai có quyền Manager/Admin trong workflow duyệt? | Product Owner | Sprint 1 |
 | ~~Q-006~~ | ~~RabbitMQ sẽ self-host, Docker Compose hay dùng managed broker?~~ | ~~Tech Lead/Admin~~ | ~~Sprint 0~~ → **Answered: D-006** |
+| ~~Q-007~~ | ~~Ai sở hữu Airtable base, Notion workspace và webhook config?~~ | ~~Product Owner/Tech Lead~~ | ~~Sprint 1~~ → **Answered: D-008** |
+| ~~Q-008~~ | ~~Webhook receiver Sprint 1 chạy kiểu nào?~~ | ~~Tech Lead/Admin~~ | ~~Sprint 1~~ → **Answered: D-007** |
