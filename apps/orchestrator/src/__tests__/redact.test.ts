@@ -13,7 +13,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 // Direct relative import — no alias needed
-import { redact } from "../lib/redact.ts";
+import { redact } from "../lib/redact.js";
 
 // ---------------------------------------------------------------------------
 // 1. Bearer token in strings
@@ -42,6 +42,13 @@ describe("redact — key=value patterns in strings", () => {
     const input = "api_key=supersecret123";
     const result = redact(input) as string;
     assert.ok(!result.includes("supersecret123"), "api_key value should be redacted");
+  });
+
+  it("redacts provider key query parameter in URLs", () => {
+    const input = "https://provider.example/generate?key=provider-secret-123&model=test";
+    const result = redact(input) as string;
+    assert.equal(result.includes("provider-secret-123"), false);
+    assert.ok(result.includes("key=[REDACTED]"));
   });
 
   it("redacts access_token value in string", () => {

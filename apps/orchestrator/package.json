@@ -13,7 +13,9 @@
     "test": "node --test --experimental-strip-types src/__tests__/*.test.ts"
   },
   "dependencies": {
+    "@mediaops/policy-engine": "0.1.0",
     "@mediaops/shared-contracts": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "amqplib": "^0.10.4",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
@@ -29,4 +31,3 @@
     "typescript": "^5.5.4"
   }
 }
-

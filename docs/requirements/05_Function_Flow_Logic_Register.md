@@ -137,10 +137,12 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 
 **Trigger**
 - A durable `workflow_runs` row created by FL-001/US-002 with `status = 'pending_ai_generation'`.
-- The trigger payload or worker selection contains references only, never source copy, credentials, tokens, or large content bodies.
+- US-002 publishes a references-only RabbitMQ message to `ai.compose.facebook.requested` after the workflow stub is committed.
+- The trigger payload contains references only, never source copy, credentials, tokens, prompts, AI output, CTA text blobs, assets, or large content bodies.
 
 **Input**
 - Ledger references: `workspace_id`, `workflow_run_id`, `airtable_record_id`, `approved_version`, safe `channel_account_refs`.
+- RabbitMQ message: `event_id`, `event_type = ai.compose.facebook.requested`, `workspace_id`, `workflow_run_id`, `prompt_version`, `idempotency_key`, `correlation_id`, `causation_id`.
 - Airtable reload fields: `post_id`, `campaign_id`, `master_copy`, `cta_url`, `asset_links`, `target_channels`, `scheduled_at`, `status`, campaign objective, optional `notion_brief_url`.
 - Runtime config: active `prompt_version`, validated provider/model config, Airtable field mapping config.
 - Optional Notion context references loaded through the allowlisted Notion context loader.
@@ -180,9 +182,10 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
    - On success, write sanitized `input_snapshot`, `notion_context_refs`, `output_snapshot`, provider/model metadata, and a `content_variants` row with `approval_status = 'needs_review'` and `policy_status = 'pending_policy'`.
    - Transition `workflow_runs` to `ai_generation_completed`.
    - On validation/manual-review failure, set `ai_generation_runs.status = 'needs_manual_review'`, parent workflow `ai_generation_failed`, and do not create an active `content_variants` draft.
-   - On hard security failure, set `ai_generation_runs.status = 'failed'`, parent workflow `ai_generation_failed`, and persist only sanitized metadata plus raw output hash when needed.
+   - On hard security failure, set `ai_generation_runs.status = 'failed'`, parent workflow `ai_generation_failed`, and persist only sanitized metadata plus `rawOutputHash` when needed.
 8. **Sync Airtable Review Fields:**
    - Use Airtable field mapping config instead of hardcoded field names.
+   - Reload the Airtable Post immediately before PATCH and require the current status to remain compatible with the claimed approval; if stale, do not PATCH and set `sync_retry_needed = true`.
    - Update only reviewable draft fields or sanitized review notes.
    - Never mutate the main Post status to `Approved`, `Scheduled`, `Published`, or publish-driving states.
    - If Airtable sync fails after Ledger commit, set `content_variants.sync_retry_needed = true` and write compensating audit metadata.
@@ -192,6 +195,7 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
    - Do not create publish jobs and do not call Facebook Graph API or MCP publish tools.
 10. **Broker Acknowledgement:**
    - ACK RabbitMQ only after the durable Ledger state is committed.
+   - Invalid AI queue messages are written to the AI DLQ and only then ACKed from the main queue.
    - Retryable failures must be recorded durably and retried via delayed retry/scheduler, not a hot NACK loop.
 
 **Output**
@@ -233,147 +237,246 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 - Design-level coverage is documented in `docs/plans/US-003/US-003-test-plan-and-evals.md`.
 - Required implementation tests: happy path, duplicate/redelivery, ACK-after-Ledger, provider retry, malformed JSON, hashtag normalization, CTA missing/invalid/UTM mutation, Notion fallback, SSRF blocklist, prompt injection, Airtable sync compensation, RLS fail-closed, and no-publish-boundary regression.
 
+### FL-004: Facebook MCP Validate và Enqueue Publish Job
+
+**Backlog Link:** US-005
+**Owner:** MCP/Backend
+**Status:** Designed (Ready for Implementation — pending OQ-005-3, OQ-005-4 resolution)
+
+**Trigger**
+- RabbitMQ message `publish.facebook.requested` published bởi US-004 transactional outbox relay (`publish_handoff_events`).
+- Message arrives khi `publish_jobs.status = 'queued'`, `content_variants.policy_status = 'policy_approved'`, `workflow_runs.status = 'policy_evaluation_completed'`.
+
+**Input**
+- RabbitMQ message: `event_id`, `event_type = publish.facebook.requested`, `workspace_id`, `workflow_run_id`, `job_id`, `variant_id`, `channel_account_id`, `scheduled_at`, `idempotency_key`, `correlation_id`, `created_at`.
+- Payload là references-only: không chứa body, hashtags, cta_url, token, bearer, secret.
+- Ledger reload: `publish_jobs`, `content_variants`, `channel_account`, `token_reference` (metadata: `secret_ref`, `token_status`, `expires_at`, `scopes`).
+
+**Preconditions**
+- `publish_jobs.status = 'queued'` (idempotency guard).
+- `content_variants.policy_status = 'policy_approved'`.
+- `workflow_runs.status = 'policy_evaluation_completed'`.
+- `publish_jobs.mcp_validation_idempotency_key` không tồn tại (US-005-level dedup).
+
+**Processing Logic**
+1. **Message Schema Validation (Consumer):** Validate message bằng Zod schema `PublishFacebookRequestedEvent`. Invalid → DLQ → ACK original → exit.
+2. **Idempotency Check:** Query `publish_jobs` by `job_id`. status `validated`/`publishing`/`published` → ACK, log `already_advanced`, exit. status `validation_failed` → ACK, log `already_failed`, exit. `mcp_validation_idempotency_key` exists → ACK, no-op, exit.
+3. **Start Postgres Transaction:** `SET LOCAL app.current_workspace_id = :workspace_id`. Reload context. Transition `publish_jobs.status = 'mcp_validating'`. COMMIT.
+4. **Token Pre-check (fast-fail):** Verify `token_reference.token_status = 'active'` AND `expires_at > NOW() + buffer`. Fail → `validation_failed` + Slack alert Admin → ACK → exit.
+5. **Call MCP tool `get_rate_limit_status`** via MCP client → Facebook MCP Server. MCP server đọc token từ secret store (chỉ trong MCP server process). Return sanitized `RateLimitStatusResult`. `quotaExceeded = true` → `validation_failed` + Slack → ACK → exit.
+6. **Call MCP tool `validate_post`** via MCP client → Facebook MCP Server. MCP server đọc token, apply FB validation rules, return sanitized `ValidatePostResult` (NO raw API response, NO token). violations present → `validation_failed` + Slack → ACK → exit.
+7. **Persist Result (Atomic Transaction):** UPDATE `publish_jobs` (`status = 'validated'`, `mcp_validation_result`, `validated_at`, `mcp_validation_idempotency_key`). UPDATE `workflow_runs` (`status = 'mcp_validation_completed'`). INSERT `audit_log` (`MCP_VALIDATION_COMPLETED`). INSERT `mcp_validation_events` outbox. COMMIT.
+8. **ACK RabbitMQ chỉ sau COMMIT.**
+9. **Post-Commit:** Outbox relay publishes `publish.facebook.validated` → RabbitMQ (for US-006).
+
+**Output**
+- Pass: `publish_jobs.status = 'validated'`, `mcp_validation_events` outbox pending, `publish.facebook.validated` emitted.
+- Fail: `publish_jobs.status = 'validation_failed'`, sanitized error in Ledger, Slack alert sent.
+- Ineligible: ACK, no state change, audit `mcp_validation_ineligible`.
+
+**Error Handling**
+
+| Case | Detection | Action | `publish_jobs.status` | RabbitMQ |
+|:---|:---|:---|:---|:---|
+| Pass | All checks pass | Commit `validated` + outbox | `validated` | ACK after commit |
+| Token invalid/expired | `token_status != 'active'` OR OAuthException | `validation_failed` + Slack Admin alert | `validation_failed` | ACK after commit |
+| Quota exceeded | `quotaExceeded = true` | `validation_failed` + `QUOTA_EXCEEDED` + Slack | `validation_failed` | ACK after commit |
+| Platform constraint violated | violations present | `validation_failed` + Slack | `validation_failed` | ACK after commit |
+| Transient MCP/network error | Timeout / 5xx | NACK → requeue (max 5 retries) | `mcp_validating` | NACK |
+| Duplicate event | status already advanced | ACK, no-op | Unchanged | ACK |
+| Schema invalid | Zod fail | DLQ + ACK original | N/A | DLQ + ACK |
+| DB fail before commit | Transaction error | NACK/requeue | Unchanged | NACK |
+| Exhausted retries | retry_count > 5 | DLQ + admin Slack | `validation_failed` | DLQ |
+
+**Audit/Telemetry**
+- `MCP_VALIDATION_STARTED`, `MCP_VALIDATION_COMPLETED`, `MCP_VALIDATION_FAILED`, `MCP_VALIDATION_INELIGIBLE`, `MCP_TOKEN_PRE_CHECK_FAILED`, `MCP_QUOTA_EXCEEDED`, `MCP_VALIDATED_HANDOFF_ENQUEUED`, `MCP_VALIDATION_DLQ`.
+- Metadata: `workspace_id`, `job_id`, `variant_id`, `correlation_id`. Không log: body text, access_token, raw Graph API response.
+
+**Idempotency**
+- Job-level key (US-004): `publish.facebook.job:{workspace_id}:{post_id}:{approved_version}:{policy_version}` → `publish_jobs.idempotency_key` UNIQUE.
+- MCP validation key (US-005): `mcp.validate.facebook:{workspace_id}:{job_id}:{mcp_tool_version}` → `publish_jobs.mcp_validation_idempotency_key` UNIQUE.
+- Outbox key: `publish.facebook.validated:{workspace_id}:{job_id}` → `mcp_validation_events.idempotency_key` UNIQUE.
+
+**Queue Behavior**
+- Consumer: `publish.facebook.requested`. DLQ: `publish.facebook.requested.dlq`.
+- Output (pass): `publish.facebook.validated` via outbox relay. Output (fail/DLQ): `alerts.slack.send`.
+- ACK: chỉ sau Ledger commit. NACK: transient errors (max 5 retries, backoff: 1s, 2s, 4s, 8s, 16s).
+
+**Security Rules**
+- `SET LOCAL app.current_workspace_id = :workspace_id` trong mọi tenant-scoped transaction.
+- Normal worker không dùng service role; DB connection rejects bypass markers.
+- RLS với USING + WITH CHECK cho `publish_jobs`, `mcp_validation_events`, `content_variants`.
+- **Token chỉ được đọc trong `apps/facebook-mcp-server/`** từ secret store — không xuất hiện trong orchestrator, RabbitMQ payload, logs, audit metadata, Airtable, Slack.
+- **Orchestrator không gọi Facebook Graph API** trực tiếp.
+- **`validate_post` không gọi publish endpoint** (POST /feed); regression test bắt buộc.
+- `mcp_validation_result` JSONB: chỉ sanitized summary (violation codes, quota numbers), không chứa raw API response.
+- Fail closed: token invalid/expired/missing → `validation_failed` ngay, không retry.
+
+**Test Evidence**
+- Required: MCP server unit tests mỗi violation code; worker integration tests (happy/fail/idempotency/ACK-after-commit); RLS tests; no-token tests; no-publish regression test; no-Graph-API-from-orchestrator boundary test.
+- Phủ đủ MCP-001 đến MCP-016 trong US-005 Security Gate.
+
 **Change History**
-- 2026-05-20: Initial logic drafted.
+- 2026-05-20: Initial logic drafted (combined stub US-005/US-006 as FL-004).
+- 2026-06-01: Fully detailed for US-005 scope only: separated from US-006 (publish_post execution). Added trigger, preconditions, processing logic (9 steps), error matrix, idempotency strategy (3 levels), queue behavior, security constraints, and audit events taxonomy. Aligned with US-004 handoff boundary (`publish_jobs` minimal schema from migration `0004`), US-005 implementation plan, and US-005 security release gate.
+
+---
+
+### FL-004b: Facebook MCP Publish Execution (US-006)
+
+**Backlog Link:** US-006
+**Owner:** MCP/Backend
+**Status:** Implemented
+
+**Trigger**
+- Cron Scheduler (`McpPublishScheduler`) scans `publish_jobs` for `status='validated'` and `scheduled_at <= NOW()`.
+
+**Input**
+- `job_id`, `variant_id`, `channel_account_id`, `scheduled_at`, `idempotency_key` (references-only from `publish.facebook.execute` event).
+- Ledger reload: `publish_jobs`, `content_variants`, `channel_account`.
+
+**Processing Logic**
+1. **Scheduler:** `McpPublishScheduler` queries due jobs, creates an outbox entry in `publish_execution_events`, and pushes `publish.facebook.execute` to RabbitMQ.
+2. **Consumer:** `mcpPublishRabbitmqConsumer` reads the message and verifies schema.
+3. **Worker:** `McpPublishWorker` loads job and locks it via DB transaction, changing status to `publishing`.
+4. **MCP Tool Call:** Worker calls `publishPost` on Facebook MCP Server via the MCP Client.
+5. **Graph API Execution:** MCP server uses `SecretStore` to resolve the token and calls `POST /{page_id}/feed`. Returns sanitized result.
+6. **State Persistence:** 
+   - On success: status `published`, `external_post_id` saved, `published_at` timestamp set.
+   - On transient error (5xx, timeout): `publish_attempt_count` incremented, message requeued via NACK.
+   - On permanent error (auth fail, permission): status `failed`, Slack alert dispatched.
+7. **Airtable Compensation:** If the Ledger state is saved successfully but the Airtable PATCH fails, `airtable_sync_retry_needed` is set to true for future polling. Ledger is NOT rolled back.
+
+**Output**
+- `published` job with `external_post_id`; or `failed` job with sanitized error audit.
+
+**Error Handling**
+- Temporary network/API error: retry via RabbitMQ NACK with backoff.
+- Permission/token error: fail closed, mark `failed`, alert Admin.
+- Duplicate publish: idempotency check in scheduler ensures only one execute event is pushed. Idempotency check in worker ensures already `published` jobs are ACKed as no-op.
+
+**Audit/Telemetry**
+- `PUBLISH_STARTED`, `PUBLISH_SUCCEEDED`, `PUBLISH_FAILED`.
+- `publish_execution_events` stores tracking of dispatched execute events.
+
+**Security Rules**
+- No raw token in logs, Slack, Airtable.
+- Orchestrator never calls Graph API directly; uses Facebook MCP Server via tool.
+- Only sanitized response summary stored in Ledger (no raw Graph API response).
+
+**Test Evidence**
+- Tested via `mcpPublishWorker.test.ts`, `mcpPublishRabbitmqConsumer.test.ts`, and `publishPost.test.ts`.
+
+**Change History**
+- 2026-05-20: Initial logic drafted (combined stub as FL-004).
+- 2026-06-01: Separated from FL-004 (US-005); renamed FL-004b as US-006 stub placeholder.
+- 2026-06-01: Implemented logic matching the scheduler architecture, decoupling validation from execution.
+
 - 2026-05-21: Finalized US-003 design in T-013 with Ledger schema, idempotency, worker flow, context boundaries, prompt/versioning, structured validation, provider retry policy, Airtable compensation, policy outbox handoff, and mandatory security controls.
+- 2026-06-01: Updated implementation logic to use RabbitMQ `ai.compose.facebook.requested` handoff from US-002, enforce references-only AI queue messages, ACK only after AI Ledger commit or confirmed DLQ write, persist prompt-injection hard failures as hash-only sanitized snapshots, and guard Airtable sync with a fresh status reload before PATCH.
 
 ### FL-003: Policy Engine Publish Guardrail
 
 **Backlog Link:** US-004  
 **Owner:** Backend/Security  
-**Status:** Draft
+**Status:** Implemented
 
 **Trigger**
-- AI variant created or Slack approval command received.
+- RabbitMQ message `policy.evaluate.requested` published by US-003 transactional outbox relay.
+- Message arrives when `workflow_runs.status = 'ai_generation_completed'`, `content_variants.policy_status = 'pending_policy'`.
 
 **Input**
-- Variant, campaign settings, actor role, channel account status, forbidden terms config.
+- RabbitMQ message: `event_id`, `event_type = policy.evaluate.requested`, `workspace_id`, `workflow_run_id`, `ai_generation_run_id`, `content_variant_id`, `airtable_record_id`, `platform = 'facebook'`, `prompt_version`, `approved_version`, `idempotency_key`, `correlation_id`, `created_at`.
+- Payload is references-only: no body text, hashtags, CTA, token, or credentials.
+- Runtime context reloaded from Ledger: `content_variants`, `channel_account`, `token_reference`, workspace config (`auto_publish_enabled`, `auto_approve_enabled`), forbidden terms config.
+
+**Preconditions**
+- `content_variants.policy_status = 'pending_policy'` (idempotency guard).
+- `content_variants.approval_status = 'needs_review'`.
+- `workflow_runs.status = 'ai_generation_completed'`.
+- No existing `publish_rule_results` row for the same `idempotency_key`.
 
 **Processing Logic**
-1. Check campaign auto publish flag.
-2. Check manager/admin approval.
-3. Check variant approval status.
-4. Check Facebook text/media constraints.
-5. Check CTA/UTM.
-6. Check forbidden terms and legal flags.
-7. Check token/channel account status.
-8. Return allowed/blockers/warnings.
+1. **Message Schema Validation (Consumer):** Validate message using Zod schema for `PolicyEvaluateRequestedEvent`. Invalid schema → DLQ → ACK original → exit.
+2. **Idempotency Check:** Query `publish_rule_results` by `idempotency_key`. If row exists → ACK, no-op, exit. If `content_variants.policy_status != 'pending_policy'` → ACK, log `policy_ineligible`, exit.
+3. **Start Postgres Transaction:** `SET LOCAL app.current_workspace_id = :workspace_id`. Lock `content_variants` row; verify `policy_status = 'pending_policy'`. Transition `policy_status = 'policy_evaluating'`. COMMIT.
+4. **Reload Context from Ledger:** Load `channel_account`, `token_reference`, workspace config, forbidden terms config.
+5. **Run Policy Engine Rule Checks (pure functions, no I/O):**
+   - `checkApprovalStatus(variant)` → MISSING_APPROVAL blocker.
+   - `checkChannelToken(channelAccount, tokenRef)` → INVALID_CHANNEL_TOKEN blocker.
+   - `checkChannelAccountActive(channelAccount)` → CHANNEL_ACCOUNT_INACTIVE blocker.
+   - `checkFacebookTextLength(variant)` → PLATFORM_TEXT_CONSTRAINT_VIOLATED (limit: 63,206 chars).
+   - `checkForbiddenTerms(variant, config)` → FORBIDDEN_TERM_DETECTED (case-insensitive, body + hashtags).
+   - `checkCtaUrl(variant, sourcePost)` → MISSING_CTA_URL blocker; MISSING_UTM warning (configurable).
+   - `checkAutoPublishConfig(workspaceConfig)` → AUTO_PUBLISH_DISABLED / AUTO_APPROVE_DISABLED blocker.
+   - `checkHashtagCount(variant)` → HASHTAG_COUNT_HIGH warning (>10 hashtags).
+   - `aggregateRuleResults(checks)` → `{ allowed, blockers, warnings, checks }`.
+6. **Persist Rule Result (Atomic Transaction):** INSERT `publish_rule_results`; UPDATE `content_variants.policy_status` (`policy_approved` or `policy_rejected`); UPDATE `workflow_runs.status` (`policy_evaluation_completed` or `policy_evaluation_blocked`); INSERT `audit_log`. If PASS AND auto_publish_enabled AND auto_approve_enabled: INSERT `publish_jobs` stub + `publish_handoff_events` outbox row. COMMIT.
+7. **ACK RabbitMQ only after COMMIT.**
+8. **Post-Commit Side Effects (async):** Outbox relay publishes `publish.facebook.requested`. If BLOCKED: PATCH Airtable `Needs Review` + blockers; publish `alerts.slack.send`. If Airtable PATCH fails: `airtable_sync_retry_needed = true` + compensating audit; do NOT rollback Ledger.
 
 **Output**
-- `allowed`, `blockers`, `warnings`, `checks`.
+- Pass: `publish_rule_results` (`allowed=true`), `publish_jobs` stub (`queued`), `publish_handoff_events` outbox, `policy_approved` variant status.
+- Block: `publish_rule_results` (`allowed=false`, blockers/warnings), Airtable `Needs Review`, Slack alert, `policy_rejected` variant status.
+- Ineligible: ACK, no state change, audit `policy_ineligible`.
 
 **Error Handling**
-- Missing config: fail closed.
-- Missing token status: fail closed.
+
+| Case | Detection | Action | Ledger Status | RabbitMQ |
+|:---|:---|:---|:---|:---|
+| Pass (auto-publish enabled) | All checks pass + auto_publish_enabled | Insert publish_job + outbox, commit | `policy_approved` / `policy_evaluation_completed` | ACK after commit |
+| Pass (manual) | All checks pass, auto_publish_enabled=false | Insert rule_result only, commit | `policy_approved` / `policy_evaluation_completed` | ACK after commit |
+| Blocked | ≥1 blocker | Insert rule_result blocked, Airtable+Slack, commit | `policy_rejected` / `policy_evaluation_blocked` | ACK after commit |
+| Duplicate event | `idempotency_key` exists | ACK, no-op | Unchanged | ACK |
+| Ineligible (wrong status) | `policy_status != 'pending_policy'` | ACK, log `policy_ineligible` | Unchanged | ACK |
+| Invalid message schema | Zod fail | DLQ + ACK original | N/A | DLQ + ACK |
+| DB fail before commit | Transaction rollback | NACK/requeue | Unchanged | NACK |
+| Airtable fail after commit | HTTP error | `airtable_sync_retry_needed=true` + compensating audit | Ledger committed | Already ACKed |
+| Exhausted retries | retry_count > 5 | DLQ + admin Slack alert | `policy_evaluation_failed` | DLQ |
 
 **Audit/Telemetry**
-- `POLICY_CHECK_PASSED`, `POLICY_CHECK_BLOCKED`.
+- `POLICY_CHECK_COMPLETED`: sau mỗi evaluation (pass/block).
+- `POLICY_CHECK_BLOCKED`: khi `allowed=false`, kèm blocker codes.
+- `POLICY_INELIGIBLE`: khi event không đủ điều kiện.
+- `PUBLISH_JOB_STUB_CREATED`: khi publish_jobs stub insert thành công.
+- `PUBLISH_HANDOFF_ENQUEUED`: khi outbox relay publish thành công.
+- `POLICY_AIRTABLE_SYNC_FAILED`: khi Airtable PATCH fail sau commit.
+- Metadata: `workspace_id`, `correlation_id`, `content_variant_id`, `result_id`. Không log body text, token, forbidden term raw value.
 
-**Security Rules**
-- Fail closed for publish actions.
-- Warnings can continue only if explicitly configured.
+**Idempotency**
+- `POLICY_VERSION` constant: `'policy-facebook-v1'` exported từ `packages/policy-engine/src/version.ts` (Decision D-010). Không hardcode inline trong worker.
+- Key formula (policy evaluation): `policy.evaluate.requested:{workspace_id}:{content_variant_id}:{POLICY_VERSION}`.
+- Stored in: `publish_rule_results.idempotency_key` (UNIQUE constraint).
+- Publish job key (Decision D-011): `publish.facebook.job:{workspace_id}:{post_id}:{approved_version}:{POLICY_VERSION}` — bao gồm policy version để tránh false-positive dedup khi rule set thay đổi breaking.
+- Outbox key: `publish.facebook.handoff:{workspace_id}:{job_id}`.
 
-**Test Evidence**
-- Pending.
+**Queue Behavior**
+- Consumer: `policy.evaluate.requested`.
+- DLQ: `policy.evaluate.requested.dlq`.
+- Output (pass): `publish.facebook.requested` via outbox relay.
+- Output (block): `alerts.slack.send`.
+- ACK: chỉ sau Ledger commit. NACK: transient errors (max 5 retries, backoff: 1s, 2s, 4s, 8s, 16s).
 
-**Change History**
-- 2026-05-20: Initial logic drafted.
-
-### FL-004: Facebook MCP Publish Job
-
-**Backlog Link:** US-005, US-006  
-**Owner:** MCP/Backend  
-**Status:** Draft
-
-**Trigger**
-- Policy Engine allowed publish and scheduled time is due.
-
-**Input**
-- `job_id`, `variant`, `channel_account_id`, `idempotency_key`, `scheduled_at`.
-
-**Processing Logic**
-1. Validate job status and idempotency.
-2. Validate quota and token.
-3. Mark job `publishing`.
-4. Call Facebook Graph API inside MCP server.
-5. Store external post id on success.
-6. Mark job `published`.
-7. Send Slack success/failure alert.
-
-**Output**
-- Published post or failed job.
-
-**Error Handling**
-- Temporary network/API error: retry.
-- Permission/token error: fail and alert Admin.
-- Duplicate idempotency key: return existing job state.
-
-**Audit/Telemetry**
-- `PUBLISH_STARTED`, `PUBLISH_SUCCEEDED`, `PUBLISH_FAILED`.
-
-**Security Rules**
-- No raw token in logs, Slack, Airtable.
-- AI Agent never calls Graph API directly.
+**Security Constraints**
+- `SET LOCAL app.current_workspace_id = :workspace_id` trong mọi tenant-scoped transaction.
+- Normal worker không dùng service role; DB connection rejects bypass markers.
+- RLS với USING + WITH CHECK cho `publish_rule_results`, `publish_handoff_events`, `publish_jobs`.
+- Policy Engine (`packages/policy-engine`) là pure functions, không gọi platform API.
+- `PublishFacebookRequestedEvent`: references-only, không chứa body/token/secret.
+- Logs/audit không chứa raw token, forbidden term raw value, hoặc provider credentials.
+- `checkForbiddenTerms`: NFC normalize + lowercase trước compare; không log raw matched term.
+- `POLICY_BLOCK_SLACK_CHANNEL_ID` thiếu: graceful degradation — Ledger và Airtable vẫn commit, tạo audit `alert_pending_config`, không fail policy transaction (Decision D-014).
+- Fail closed: token status không xác định → block.
 
 **Test Evidence**
-- Pending.
+- Required: unit tests cho mỗi rule function; integration tests happy/block/idempotency/ACK-after-commit; contract tests; RLS tests. Phủ đủ POL-001 đến POL-015 trong US-004 Security Gate.
 
 **Change History**
-- 2026-05-20: Initial logic drafted.
+- 2026-05-20: Initial logic drafted (stub).
+- 2026-06-01: Fully detailed with processing logic, error matrix, preconditions, idempotency, queue behavior, security constraints, and audit events taxonomy. Aligned with US-003 handoff boundary spec (`US-003-policy-handoff-boundary.md`) and US-004 implementation plan.
+- 2026-06-01 (P0/P1 decisions): Updated idempotency keys (publish job key now includes `POLICY_VERSION` per D-011); added `POLICY_VERSION` constant source (`version.ts`, D-010); updated security constraints with forbidden terms no-log rule and Slack graceful degradation (D-014); updated RLS scope to include `publish_jobs` (D-012).
+- 2026-06-01: Implemented US-004 policy engine package, references-only contracts, Postgres migration `0004_us004_policy_publish_guardrail.sql`, PolicyWorker, RabbitMQ consumer, publish/slack queue publishers, Airtable Needs Review sync, compensation path, and release-gate tests. `npm run build` passed; `npm test` passed with 154 tests.
 
-### FL-005: Facebook Comment Sync and Slack Alert
-
-**Backlog Link:** US-007  
-**Owner:** MCP/Communication  
-**Status:** Draft
-
-**Trigger**
-- Scheduled sync, Facebook webhook, or manual sync command.
-
-**Input**
-- `external_post_id`, `channel_account_id`, `since`, Page token reference.
-
-**Processing Logic**
-1. MCP fetches comments or receives webhook.
-2. MCP publishes `comments.facebook.ingest` event to RabbitMQ.
-3. Worker upserts by platform external comment id.
-3. Classify sentiment/risk keyword.
-4. Store interaction/comment in Ledger.
-5. Send Slack alert to inbox or crisis channel.
-
-**Output**
-- Interaction records and Slack alerts.
-
-**Error Handling**
-- Facebook API error: mark sync failed and retry if temporary.
-- Slack send failure: store alert failed for retry.
-
-**Audit/Telemetry**
-- `COMMENTS_SYNCED`, `COMMENT_ALERT_SENT`, `COMMENT_ESCALATED`.
-
-**Security Rules**
-- Mask sensitive data in broad channels.
-- Do not alert resolved interactions again.
-
-**Test Evidence**
-- Pending.
-
-**Change History**
-- 2026-05-20: Initial logic drafted.
-
-### FL-006: Slack Slash Command Handler
-
-**Backlog Link:** US-008, US-009  
-**Owner:** Communication/Backend  
-**Status:** Draft
-
-**Trigger**
-- Slack command: `/approve_post`, `/reject_post`, `/reply_comment`, `/escalate`.
-
-**Input**
-- Slack signed request, user id, command, args, timestamp.
-
-**Processing Logic**
 1. Verify Slack signature and timestamp.
 2. Parse command and args.
 3. Map Slack user to workspace role.
@@ -515,6 +618,156 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 - Conversation and message records in Ledger.
 
 **Error Handling**
+### FL-004b: Slack Command Handler
+
+**Backlog Link:** US-007  
+**Owner:** Backend/Platform  
+**Status:** Active
+
+**Trigger**
+- Slack Slash Command HTTP POST (Verified via signing secret).
+
+**Processing Logic**
+1. Verify Slack signature and timestamp.
+2. Parse command and args.
+3. Map Slack user to workspace role.
+4. Validate permission.
+5. Execute action via middleware/MCP.
+6. Update Airtable/Ledger.
+7. Return Slack response.
+
+**Output**
+- Command result and audit log.
+
+**Error Handling**
+- Invalid signature: reject.
+- Missing permission: reject.
+- MCP failure: show actionable error.
+
+**Audit/Telemetry**
+- `SLACK_COMMAND_RECEIVED`, `SLACK_COMMAND_REJECTED`, `SLACK_COMMAND_SUCCEEDED`.
+
+**Security Rules**
+- Never trust Slack user id without role mapping.
+- Reject stale signed requests.
+
+**Test Evidence**
+- Pending.
+
+**Change History**
+- 2026-05-20: Initial logic drafted.
+
+### FL-007: Notion Campaign Brief Context Loader
+
+**Backlog Link:** US-013  
+**Owner:** Orchestration/BA  
+**Status:** Draft
+
+**Trigger**
+- AI Composer starts for an Approved Post with `Notion Brief URL`.
+
+**Input**
+- `notion_page_id` or `notion_brief_url`, campaign id, configured guideline page ids.
+
+**Processing Logic**
+1. Resolve Notion page id from Airtable Campaign field.
+2. Fetch allowed Notion page content or use manually exported context in MVP.
+3. Extract brief summary, brand voice, do/avoid terms, legal notes.
+4. Store context reference, not full sensitive raw content if not needed.
+5. Pass normalized context into AI prompt builder.
+
+**Output**
+- Normalized context object for AI Composer.
+
+**Error Handling**
+- Page unavailable: mark context warning and continue only if fallback allowed.
+- Permission error: alert Admin and mark workflow `needs_manual_review`.
+
+**Audit/Telemetry**
+- `NOTION_CONTEXT_LOADED`, `NOTION_CONTEXT_LOAD_FAILED`.
+
+**Security Rules**
+- Never read arbitrary Notion workspace pages.
+- Only configured pages linked from Airtable Campaign are allowed.
+- No secrets/tokens in Notion.
+
+**Test Evidence**
+- Pending.
+
+**Change History**
+- 2026-05-20: Initial logic drafted.
+
+
+### FL-008: RabbitMQ Event Bus Processing
+
+**Backlog Link:** US-014  
+**Owner:** Backend/Platform  
+**Status:** Draft
+
+**Trigger**
+- Webhook receiver, MCP server, or middleware creates asynchronous work.
+
+**Input**
+- `event_id`, `type`, `workspace_id`, `payload_ref`, `idempotency_key`, `correlation_id`.
+
+**Processing Logic**
+1. Producer validates event type.
+2. Producer stores event metadata in Ledger.
+3. Producer publishes message to RabbitMQ exchange.
+4. Queue routes message to worker-specific queue.
+5. Worker checks idempotency in Ledger.
+6. Worker processes event.
+7. Worker updates Ledger and acknowledges message.
+8. Worker retries temporary failures.
+9. Worker moves exhausted failures to DLQ.
+
+**Output**
+- Processed event, retry state, or DLQ event.
+
+**Error Handling**
+- Invalid event: reject and audit.
+- Temporary worker error: retry with backoff.
+- Permanent error: DLQ and alert Admin.
+
+**Audit/Telemetry**
+- `QUEUE_EVENT_PUBLISHED`, `QUEUE_EVENT_CONSUMED`, `QUEUE_EVENT_RETRIED`, `QUEUE_EVENT_DLQ`.
+
+**Security Rules**
+- Do not put raw tokens in RabbitMQ payload.
+- Large payloads must be stored by reference.
+- All workers must be idempotent.
+
+**Test Evidence**
+- Pending.
+
+**Change History**
+- 2026-05-20: Initial logic drafted.
+
+### FL-009: Unified Direct Message Ingestion
+
+**Backlog Link:** US-015  
+**Owner:** MCP/Backend/Support  
+**Status:** Draft
+
+**Trigger**
+- Platform MCP receives direct message webhook or polling result.
+
+**Input**
+- Platform, external thread id, external message id, sender metadata, message body, attachments.
+
+**Processing Logic**
+1. MCP validates source webhook.
+2. MCP publishes `dm.<platform>.ingest` to RabbitMQ.
+3. Worker checks duplicate by external message id.
+4. Worker upserts conversation.
+5. Worker inserts message.
+6. Worker evaluates SLA/risk.
+7. Worker publishes Slack/Teams alert event if needed.
+
+**Output**
+- Conversation and message records in Ledger.
+
+**Error Handling**
 - Duplicate message: no-op with audit.
 - Payload parse error: DLQ.
 - Ledger unavailable: retry.
@@ -532,3 +785,6 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 
 **Change History**
 - 2026-05-20: Initial logic drafted.
+
+
+

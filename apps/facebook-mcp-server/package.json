@@ -1,0 +1,20 @@
+{
+  "name": "@mediaops/facebook-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test --experimental-strip-types src/__tests__/*.test.ts"
+  },
+  "dependencies": {
+    "@mediaops/shared-contracts": "*",
+    "@modelcontextprotocol/sdk": "^0.6.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "typescript": "^5.5.4"
+  }
+}

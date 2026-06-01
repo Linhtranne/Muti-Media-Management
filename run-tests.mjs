@@ -12,15 +12,37 @@ import path from "node:path";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const testFiles = [
-  "packages/shared-contracts/src/__tests__/airtableContracts.test.ts",
-  "apps/orchestrator/src/__tests__/redact.test.ts"
+  "packages/shared-contracts/dist/__tests__/airtableContracts.test.js",
+  "packages/shared-contracts/dist/__tests__/policyContracts.test.js",
+  "packages/shared-contracts/dist/__tests__/mcpContracts.test.js",
+  "packages/policy-engine/dist/__tests__/policyEngine.test.js",
+  "apps/facebook-mcp-server/dist/__tests__/secretStore.test.js",
+  "apps/facebook-mcp-server/dist/__tests__/validatePost.test.js",
+  "apps/facebook-mcp-server/dist/__tests__/getRateLimitStatus.test.js",
+  "apps/orchestrator/dist/__tests__/redact.test.js",
+  "apps/orchestrator/dist/__tests__/airtableClient.test.js",
+  "apps/orchestrator/dist/__tests__/channelAccountResolver.test.js",
+  "apps/orchestrator/dist/__tests__/approvedPostWorker.test.js",
+  "apps/orchestrator/dist/__tests__/notionClient.test.js",
+  "apps/orchestrator/dist/__tests__/llmAdapter.test.js",
+  "apps/orchestrator/dist/__tests__/structuredValidator.test.js",
+  "apps/orchestrator/dist/__tests__/aiComposerWorker.test.js",
+  "apps/orchestrator/dist/__tests__/aiComposerRabbitmqConsumer.test.js",
+  "apps/orchestrator/dist/__tests__/policyRabbitmqConsumer.test.js",
+  "apps/orchestrator/dist/__tests__/policyWorker.test.js",
+  "apps/orchestrator/dist/__tests__/securityGate.test.js",
+  "packages/shared-contracts/dist/__tests__/mcpPublishContracts.test.js",
+  "apps/facebook-mcp-server/dist/__tests__/publishPost.test.js",
+  "apps/orchestrator/dist/workers/__tests__/mcpPublishWorker.test.js",
+  "apps/orchestrator/dist/workers/__tests__/mcpPublishScheduler.test.js",
+  "apps/orchestrator/dist/queue/__tests__/mcpPublishRabbitmqConsumer.test.js"
 ];
 
 const absoluteFiles = testFiles.map((f) => path.resolve(__dirname, f));
 
 const result = spawnSync(
   process.execPath,
-  ["--no-warnings", "--test", "--experimental-strip-types", ...absoluteFiles],
+  ["--no-warnings", "--test", ...absoluteFiles],
   {
     stdio: "inherit",
     cwd: __dirname

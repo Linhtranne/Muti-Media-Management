@@ -13,12 +13,13 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 // Direct relative imports — no alias resolution needed for node:test strip-types mode
-import { AirtableApprovedWebhookSchema } from "../events/airtablePostApproved.ts";
-import { AirtableApprovedQueueMessageSchema } from "../events/airtablePostApproved.ts";
+import { AirtableApprovedWebhookSchema } from "../events/airtablePostApproved.js";
+import { AirtableApprovedQueueMessageSchema } from "../events/airtablePostApproved.js";
+import { AiComposerQueueMessageSchema } from "../ai/composer.js";
 import {
   createIngressIdempotencyKey,
   createWorkflowIdempotencyKey
-} from "../events/airtablePostApproved.ts";
+} from "../events/airtablePostApproved.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -214,4 +215,34 @@ describe("idempotency helpers", () => {
     const key2 = createWorkflowIdempotencyKey({ workspaceId: "ws_A", airtableRecordId: "rec1", approvedVersion: 2 });
     assert.notEqual(key1, key2);
   });
+});
+
+describe("AiComposerQueueMessageSchema", () => {
+  const validAiMessage = {
+    event_id: "evt_ai_001",
+    event_type: "ai.compose.facebook.requested" as const,
+    event_version: 1 as const,
+    source: "orchestrator.workflow_runs" as const,
+    workspace_id: "ws_test_123",
+    workflow_run_id: "wf_123",
+    prompt_version: "fb_composer_v1.0.0",
+    idempotency_key: "ai.compose.facebook:ws_test_123:wf_123:fb_composer_v1.0.0",
+    correlation_id: "corr_123",
+    causation_id: "wf_123"
+  };
+
+  it("accepts a valid references-only AI composer queue message", () => {
+    const result = AiComposerQueueMessageSchema.safeParse(validAiMessage);
+    assert.equal(result.success, true);
+  });
+
+  for (const field of ["master_copy", "cta_url", "asset_links", "prompt", "output", "body", "hashtags", "access_token", "secret_ref", "api_key", "token"]) {
+    it(`rejects AI queue message with forbidden field ${field}`, () => {
+      const result = AiComposerQueueMessageSchema.safeParse({
+        ...validAiMessage,
+        [field]: "forbidden"
+      });
+      assert.equal(result.success, false);
+    });
+  }
 });

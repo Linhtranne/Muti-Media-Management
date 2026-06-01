@@ -1,0 +1,398 @@
+import { AirtableReloadedRecordSchema, type AirtableReloadedRecord } from "@mediaops/shared-contracts";
+import { redact } from "../lib/redact.js";
+
+export class AirtableRateLimitError extends Error {
+  readonly retryable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "AirtableRateLimitError";
+  }
+}
+
+export class AirtableServiceError extends Error {
+  readonly retryable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "AirtableServiceError";
+  }
+}
+
+export class AirtableRecordNotFoundError extends Error {
+  readonly retryable = false;
+  constructor(recordId: string) {
+    super(`Airtable record not found: ${recordId}`);
+    this.name = "AirtableRecordNotFoundError";
+  }
+}
+
+export class AirtableNetworkError extends Error {
+  readonly retryable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "AirtableNetworkError";
+  }
+}
+
+const CONNECT_TIMEOUT_MS = 10_000;
+const RESPONSE_TIMEOUT_MS = 20_000;
+const TOTAL_TIMEOUT_MS = CONNECT_TIMEOUT_MS + RESPONSE_TIMEOUT_MS;
+
+export type AirtableClient = {
+  getPostRecord(recordId: string): Promise<AirtableReloadedRecord>;
+  fetchCampaignRecord(campaignId: string): Promise<{ notion_brief_url?: string; campaign_objective?: string }>;
+  updatePolicyNeedsReview?(
+    recordId: string,
+    fields: {
+      policy_status: string;
+      policy_blockers: string[];
+      policy_warnings?: string[];
+    }
+  ): Promise<void>;
+  updateVariantDraft(
+    recordId: string,
+    variantId: string,
+    fields: {
+      variant_draft: string;
+      variant_hashtags: string[];
+      variant_cta_url?: string | null;
+      ai_generation_status: string;
+      ai_review_notes?: string | null;
+    },
+    mapping: {
+      variant_draft: string;
+      variant_hashtags: string;
+      variant_cta_url: string;
+      ai_generation_status: string;
+      ai_review_notes: string;
+      ledger_variant_id: string;
+    }
+  ): Promise<void>;
+  updateRecordStatus(workspaceId: string, recordId: string, status: string): Promise<void>;
+};
+
+export function createAirtableClient(apiKey: string, baseId: string): AirtableClient {
+  const baseUrl = `https://api.airtable.com/v0/${baseId}`;
+
+  return {
+    async getPostRecord(recordId: string): Promise<AirtableReloadedRecord> {
+      const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          signal: controller.signal
+        });
+
+        if (response.status === 429) {
+          throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
+        }
+
+        if (response.status === 502 || response.status === 503) {
+          throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
+        }
+
+        if (response.status === 404) {
+          throw new AirtableRecordNotFoundError(recordId);
+        }
+
+        if (!response.ok) {
+          throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
+        }
+
+        const body = await response.json();
+        return AirtableReloadedRecordSchema.parse(body);
+      } catch (error: unknown) {
+        if (error instanceof AirtableRateLimitError
+          || error instanceof AirtableServiceError
+          || error instanceof AirtableRecordNotFoundError) {
+          throw error;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new AirtableNetworkError("Airtable API request timed out");
+        }
+
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          throw new AirtableNetworkError(`Airtable network error: ${String(redact(error.message))}`);
+        }
+
+        throw new AirtableNetworkError(`Airtable request failed: ${String(redact(String(error)))}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
+    async fetchCampaignRecord(campaignId: string): Promise<{ notion_brief_url?: string; campaign_objective?: string }> {
+      const url = `${baseUrl}/Campaigns/${encodeURIComponent(campaignId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          signal: controller.signal
+        });
+
+        if (response.status === 429) {
+          throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
+        }
+
+        if (response.status === 502 || response.status === 503) {
+          throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
+        }
+
+        if (response.status === 404) {
+          throw new AirtableRecordNotFoundError(campaignId);
+        }
+
+        if (!response.ok) {
+          throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
+        }
+
+        const body = await response.json();
+        const fields = body.fields || {};
+        const notion_brief_url = fields["Notion Brief URL"] || fields["notion_brief_url"];
+        const campaign_objective = fields["objective"] || fields["campaign_objective"] || fields["Objective"];
+
+        return {
+          notion_brief_url: typeof notion_brief_url === "string" ? notion_brief_url : undefined,
+          campaign_objective: typeof campaign_objective === "string" ? campaign_objective : undefined
+        };
+      } catch (error: unknown) {
+        if (error instanceof AirtableRateLimitError
+          || error instanceof AirtableServiceError
+          || error instanceof AirtableRecordNotFoundError) {
+          throw error;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new AirtableNetworkError("Airtable API request timed out");
+        }
+
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          throw new AirtableNetworkError(`Airtable network error: ${String(redact(error.message))}`);
+        }
+
+        throw new AirtableNetworkError(`Airtable request failed: ${String(redact(String(error)))}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
+    async updatePolicyNeedsReview(
+      recordId: string,
+      fields: {
+        policy_status: string;
+        policy_blockers: string[];
+        policy_warnings?: string[];
+      }
+    ): Promise<void> {
+      const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+
+      const updateFields: Record<string, any> = {
+        status: "Needs Review",
+        policy_status: fields.policy_status,
+        policy_blockers: fields.policy_blockers,
+        policy_warnings: fields.policy_warnings ?? []
+      };
+
+      try {
+        const response = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ fields: updateFields }),
+          signal: controller.signal
+        });
+
+        if (response.status === 429) {
+          throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
+        }
+
+        if (response.status === 502 || response.status === 503) {
+          throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
+        }
+
+        if (response.status === 404) {
+          throw new AirtableRecordNotFoundError(recordId);
+        }
+
+        if (!response.ok) {
+          throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
+        }
+      } catch (error: unknown) {
+        if (error instanceof AirtableRateLimitError
+          || error instanceof AirtableServiceError
+          || error instanceof AirtableRecordNotFoundError) {
+          throw error;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new AirtableNetworkError("Airtable API request timed out");
+        }
+
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          throw new AirtableNetworkError(`Airtable network error: ${String(redact(error.message))}`);
+        }
+
+        throw new AirtableNetworkError(`Airtable request failed: ${String(redact(String(error)))}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
+    async updateVariantDraft(
+      recordId: string,
+      variantId: string,
+      fields: {
+        variant_draft: string;
+        variant_hashtags: string[];
+        variant_cta_url?: string | null;
+        ai_generation_status: string;
+        ai_review_notes?: string | null;
+      },
+      mapping: {
+        variant_draft: string;
+        variant_hashtags: string;
+        variant_cta_url: string;
+        ai_generation_status: string;
+        ai_review_notes: string;
+        ledger_variant_id: string;
+      }
+    ): Promise<void> {
+      const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+
+      const updateFields: Record<string, any> = {
+        [mapping.variant_draft]: fields.variant_draft,
+        [mapping.variant_hashtags]: fields.variant_hashtags,
+        [mapping.ai_generation_status]: fields.ai_generation_status,
+        [mapping.ledger_variant_id]: variantId
+      };
+
+      if (fields.variant_cta_url !== undefined) {
+        updateFields[mapping.variant_cta_url] = fields.variant_cta_url;
+      }
+      if (fields.ai_review_notes !== undefined) {
+        updateFields[mapping.ai_review_notes] = fields.ai_review_notes;
+      }
+
+      try {
+        const response = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ fields: updateFields }),
+          signal: controller.signal
+        });
+
+        if (response.status === 429) {
+          throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
+        }
+
+        if (response.status === 502 || response.status === 503) {
+          throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
+        }
+
+        if (response.status === 404) {
+          throw new AirtableRecordNotFoundError(recordId);
+        }
+
+        if (!response.ok) {
+          throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
+        }
+      } catch (error: unknown) {
+        if (error instanceof AirtableRateLimitError
+          || error instanceof AirtableServiceError
+          || error instanceof AirtableRecordNotFoundError) {
+          throw error;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new AirtableNetworkError("Airtable API request timed out");
+        }
+
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          throw new AirtableNetworkError(`Airtable network error: ${String(redact(error.message))}`);
+        }
+
+        throw new AirtableNetworkError(`Airtable request failed: ${String(redact(String(error)))}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
+    async updateRecordStatus(workspaceId: string, recordId: string, status: string): Promise<void> {
+      const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+
+      const updateFields: Record<string, any> = {
+        Status: status
+      };
+
+      try {
+        const response = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ fields: updateFields }),
+          signal: controller.signal
+        });
+
+        if (response.status === 429) {
+          throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
+        }
+
+        if (response.status === 502 || response.status === 503) {
+          throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
+        }
+
+        if (response.status === 404) {
+          throw new AirtableRecordNotFoundError(recordId);
+        }
+
+        if (!response.ok) {
+          throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
+        }
+      } catch (error: unknown) {
+        if (error instanceof AirtableRateLimitError
+          || error instanceof AirtableServiceError
+          || error instanceof AirtableRecordNotFoundError) {
+          throw error;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new AirtableNetworkError("Airtable API request timed out");
+        }
+
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          throw new AirtableNetworkError(`Airtable network error: ${String(redact(error.message))}`);
+        }
+
+        throw new AirtableNetworkError(`Airtable request failed: ${String(redact(String(error)))}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+  };
+}

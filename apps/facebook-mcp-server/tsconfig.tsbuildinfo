@@ -1,0 +1,1 @@
+{"root":["./src/index.ts","./src/__tests__/getratelimitstatus.test.ts","./src/__tests__/publishpost.test.ts","./src/__tests__/secretstore.test.ts","./src/__tests__/validatepost.test.ts","./src/lib/secretstore.ts","./src/tools/getratelimitstatus.ts","./src/tools/publishpost.ts","./src/tools/validatepost.ts"],"version":"5.9.3"}

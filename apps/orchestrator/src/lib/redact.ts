@@ -1,13 +1,19 @@
 const secretPatterns = [
   /Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
   /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password)\s*[:=]\s*["']?[^"',\s}]+/gi,
+  /([?&](?:key|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password)=)[^&#\s]+/gi,
   /pat[a-z0-9_-]{10,}/gi,
   /key_[A-Za-z0-9_-]{10,}/gi
 ];
 
 export function redact(value: unknown): unknown {
   if (typeof value === "string") {
-    return secretPatterns.reduce((current, pattern) => current.replace(pattern, "[REDACTED]"), value);
+    return secretPatterns.reduce((current, pattern) => {
+      if (pattern.source.startsWith("([?&]")) {
+        return current.replace(pattern, "$1[REDACTED]");
+      }
+      return current.replace(pattern, "[REDACTED]");
+    }, value);
   }
 
   if (Array.isArray(value)) {
@@ -27,4 +33,3 @@ export function redact(value: unknown): unknown {
 
   return value;
 }
-

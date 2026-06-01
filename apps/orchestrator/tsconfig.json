@@ -6,13 +6,13 @@
     "composite": true,
     "baseUrl": ".",
     "paths": {
+      "@mediaops/policy-engine": ["../../packages/policy-engine/src/index.ts"],
       "@mediaops/shared-contracts": ["../../packages/shared-contracts/src/index.ts"]
     }
   },
   "references": [
-    { "path": "../../packages/shared-contracts" }
+    { "path": "../../packages/shared-contracts" },
+    { "path": "../../packages/policy-engine" }
   ],
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/__tests__"]
+  "include": ["src/**/*.ts"]
 }
-

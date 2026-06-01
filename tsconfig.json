@@ -2,6 +2,8 @@
   "files": [],
   "references": [
     { "path": "packages/shared-contracts" },
-    { "path": "apps/orchestrator" }
+    { "path": "packages/policy-engine" },
+    { "path": "apps/orchestrator" },
+    { "path": "apps/facebook-mcp-server" }
   ]
 }
