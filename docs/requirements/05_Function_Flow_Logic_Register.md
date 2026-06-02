@@ -618,7 +618,63 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 - Conversation and message records in Ledger.
 
 **Error Handling**
-### FL-004b: Slack Command Handler
+- Duplicate message: no-op with audit.
+- Payload parse error: DLQ.
+- Ledger unavailable: retry.
+
+**Audit/Telemetry**
+- `DM_RECEIVED`, `DM_INGESTED`, `DM_DUPLICATE_IGNORED`, `DM_INGEST_FAILED`.
+
+**Security Rules**
+- Direct messages are sensitive data.
+- Airtable/Notion must not store full DM content.
+- Role-based access required for viewing/replying.
+
+**Change History**
+- 2026-05-20: Initial logic drafted.
+### FL-005: Facebook Comment Sync
+
+**Backlog Link:** US-007  
+**Owner:** MCP/Backend  
+**Status:** Implemented
+
+**Trigger**
+- `CommentSyncScheduler` triggers every 5 minutes and pushes `comments.facebook.sync.requested` to RabbitMQ for jobs matching criteria.
+
+**Input**
+- `job_id`, `external_post_id`, `channel_account_id`.
+- Ledger context: `channel_accounts`, `publish_jobs`, `interactions`, `messages`.
+
+**Processing Logic**
+1. **Request Consumer:** consumes `comments.facebook.sync.requested`, resolves `secretRef` using `channel_account_id`.
+2. **MCP Call:** Calls `syncComments` tool on Facebook MCP server with `externalPostId` and `secretRef`.
+3. **Ingest Push:** For each comment, pushes `comments.facebook.ingest` to RabbitMQ.
+4. **Worker (FacebookCommentSyncWorker):**
+   - Consumes `comments.facebook.ingest`.
+   - Checks duplicate using `external_comment_id`.
+   - Upserts `interactions` and `messages` (idempotent).
+   - Classifies risk (`CommentRiskClassifier`).
+   - If CRISIS, pushes `alerts.slack.send` via Publisher.
+   - Commits to Ledger and ACKs.
+
+**Output**
+- New comments stored in `messages` and `interactions`.
+- Slack alerts for crisis comments.
+
+**Error Handling**
+- MCP Error: DLQ or retry.
+- Missing Channel Account: DLQ.
+
+**Audit/Telemetry**
+- `FACEBOOK_COMMENT_SYNCED`, `FACEBOOK_COMMENT_SYNC_FAILED`.
+
+**Security Rules**
+- No tokens in queue. Orchestrator fetches `secretRef` and passes it to MCP; MCP resolves token securely.
+
+**Change History**
+- 2026-06-02: Implemented for US-007.
+
+### FL-006: Slack Command Handler
 
 **Backlog Link:** US-007  
 **Owner:** Backend/Platform  
@@ -786,5 +842,208 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 **Change History**
 - 2026-05-20: Initial logic drafted.
 
+---
 
+### FL-009: Slack Approve/Reject Post Slash Command
 
+**Backlog Link:** US-008
+**Owner:** Backend/Orchestration
+**Status:** Implemented
+
+**Trigger**
+- User types `/approve_post <post_id>` or `/reject_post <post_id> <reason>` in Slack.
+- Slack sends an HTTP POST request to `/api/v1/slack/commands`.
+
+**Input**
+- `application/x-www-form-urlencoded` body containing `command`, `text`, `user_id`, `team_id`.
+- Headers: `X-Slack-Signature`, `X-Slack-Request-Timestamp`.
+
+**Processing Logic**
+1. **Webhook Receiver (Route):**
+   - Read body raw to verify `X-Slack-Signature` using `HMAC-SHA256` in constant time against `SLACK_SIGNING_SECRET`.
+   - Reject if signature is invalid or timestamp is older than 5 minutes.
+   - Parse `command` and `text` to extract `action` (approve/reject), `postId`, and `reason`.
+   - Idempotency check: calculate SHA256 of `workspace_id:slack_user_id:command:text:timestamp`.
+   - Check if event exists in `slack_command_events` via Idempotency Key. If yes, respond with duplicate message.
+   - Insert received event into `slack_command_events` (status: `received` / `rejected`).
+   - Look up user role in `workspace_members`. If not `manager` or `admin`, reject.
+   - Update event status to `queued`.
+   - Respond immediately with HTTP 200 ephemeral message (e.g., "Processing your request...").
+   - Publish `slack.post_approval.requested` to RabbitMQ.
+
+2. **Worker (SlackPostApprovalWorker):**
+   - Consume message from RabbitMQ.
+   - Fetch event from `slack_command_events` to verify it hasn't been processed.
+   - Fetch post from Airtable using `postId`. 
+   - Verify post status is valid for review (`Draft`, `Review`, or `Needs Review`).
+   - If approve: update Airtable post status to `Approved`.
+   - If reject: update Airtable post status to `Review`, and set `rejection_reason` (or `review_notes`) with the reason.
+   - Update related `workflow_runs` status to `completed` or `cancelled`.
+   - Update `slack_command_events` status to `succeeded` or `failed`.
+   - Write `SLACK_COMMAND_SUCCEEDED` / `FAILED` audit log.
+   - ACK message.
+
+**Output**
+- Ephemeral HTTP 200 response to Slack.
+- Updated status and reason in Airtable.
+- Audit logs in Ledger.
+
+**Error Handling**
+- Invalid signature -> HTTP 200 ephemeral error message, logged and audited.
+- Parse errors / Missing arguments -> HTTP 200 ephemeral help message.
+- Unauthorized user -> HTTP 200 ephemeral unauthorized message.
+- Airtable update fails -> NACK requeue with exponential backoff (max 5 retries).
+- Post not found in Airtable -> ACK, mark as failed in Ledger.
+
+**Audit/Telemetry**
+- `SLACK_SIGNATURE_REJECTED`
+- `SLACK_COMMAND_DUPLICATE_IGNORED`
+- `SLACK_COMMAND_REJECTED`
+- `SLACK_COMMAND_RECEIVED`
+- `SLACK_COMMAND_SUCCEEDED`
+- `SLACK_COMMAND_FAILED`
+
+**Security Rules**
+- Requires `SLACK_SIGNING_SECRET` configured for verification.
+- Enforces replay protection (5 minute window).
+- Requires `manager` or `admin` role in `workspace_members` (no implicit trust of Slack User IDs).
+
+**Test Evidence**
+- See unit tests in `slackSignatureVerifier.test.ts`, `slackCommandParser.test.ts`, `slackCommandsRoute.test.ts`, and `slackPostApprovalWorker.test.ts`.
+
+**Change History**
+- 2026-06-02: Initial implementation drafted for US-008.
+
+### FL-010: Slack Reply/Escalate Comment Slash Command
+
+**Backlog Link:** US-009
+**Owner:** Backend/Orchestration
+**Status:** Implemented
+
+**Trigger**
+- User types `/reply_comment <interaction_id> <message>` or `/escalate <interaction_id> [reason]` in Slack.
+- Slack sends an HTTP POST request to `/api/v1/slack/commands`.
+
+**Input**
+- `application/x-www-form-urlencoded` body containing `command`, `text`, `user_id`, `team_id`.
+- Headers: `X-Slack-Signature`, `X-Slack-Request-Timestamp`.
+
+**Processing Logic**
+1. **Webhook Receiver (Route):**
+   - Reuses US-008 signature verification.
+   - Parses `command` and `text` to extract `action` (reply/escalate), `interactionId`, and `message`/`reason`.
+   - Checks Idempotency Key against `comment_action_events`.
+   - Inserts received event into `comment_action_events`.
+   - Looks up user role in `workspace_members`. Role must be `manager`, `admin`, or `support`.
+   - Updates event status to `queued`.
+   - Publishes `slack.comment_action.requested` to RabbitMQ.
+   - Responds with ephemeral HTTP 200 message.
+
+2. **Worker (SlackCommentActionWorker):**
+   - Consumes message from RabbitMQ.
+   - Fetches event from `comment_action_events`.
+   - Fetches interaction from `interactions`.
+   - If `reply`:
+     - Looks up active Facebook `channel_account_id`; MCP resolves credentials internally.
+     - Calls Facebook MCP server `replyComment` tool.
+     - Updates interaction status to `resolved` and saves `external_reply_id`.
+   - If `escalate`:
+     - Updates interaction status to `escalated`.
+     - Publishes Slack alert.
+   - Commits updates to Ledger and ACKs RabbitMQ message.
+
+**Output**
+- Reply posted to Facebook (via MCP) or Escalation Alert sent to Slack.
+- Updated status in Ledger.
+
+**Error Handling**
+- MCP failure -> NACK requeue (transient) or mark failed (permanent).
+- Interaction not found -> ACK, mark failed.
+
+**Audit/Telemetry**
+- `SLACK_COMMENT_ACTION_SUCCEEDED`
+- `SLACK_COMMENT_ACTION_FAILED`
+
+**Security Rules**
+- Reuses US-008 Slack signature verification.
+- Enforces role mapping (`support`, `manager`, `admin`).
+- Token resolution happens exclusively inside MCP Server.
+
+**Change History**
+- 2026-06-02: Implemented for US-009.
+
+### FL-011: Operational Ledger & Audit Log Hardening
+
+**Backlog Link:** US-010
+**Owner:** Backend/Platform
+**Status:** Implemented
+
+**Trigger**
+- Any worker, route, or subsystem calls `AuditLogRepository.insertAuditLog`.
+
+**Input**
+- `workspaceId`, `eventType`, `entityType`, `entityId`, `actorType`, `actorId`, `correlationId`, `causationId`, `idempotencyKey`, `severity`, `metadata`.
+
+**Processing Logic**
+1. Pass `metadata` through `auditRedactor.sanitizeAuditMetadata`.
+2. Recursive redactor strips forbidden keys (e.g., token, secret, password) from any nested level and replaces values with `[REDACTED]`. Marks `metadata_redacted: true` and logs bare `redacted_keys`.
+3. Insert into `audit_logs` using canonical schema fields (including `event_type` and `correlation_id`).
+4. Conflict resolution on `(workspace_id, idempotency_key)` ignores duplicate inserts safely.
+
+**Output**
+- A hardened, redacted, append-only row in `audit_logs`.
+
+**Error Handling**
+- DB unique constraint violation (duplicate idempotency) -> gracefully ignored via `DO NOTHING`.
+- Missing required fields -> DB constraint error (throws, rejecting parent transaction).
+
+**Audit/Telemetry**
+- The insert operation itself is the audit/telemetry.
+
+**Security Rules**
+- RLS enforces `workspace_id` isolation (`AS RESTRICTIVE FOR ALL`).
+- Append-only Trigger blocks `UPDATE` and `DELETE` globally.
+- Redactor ensures no raw tokens are ever logged in the ledger.
+
+**Change History**
+- 2026-06-02: Implemented schema migration, redactor utility, and Shared Repository for US-010.
+
+### FL-012: Admin Facebook Page Configuration
+
+**Backlog Link:** US-011
+**Owner:** Backend/Orchestration
+**Status:** Implemented
+
+**Trigger**
+- Admin calls the API routes (/api/v1/admin/facebook/*) to authorize, connect, health-check, or disconnect Facebook Pages.
+
+**Input**
+- Admin request with x-admin-role header.
+- For connect: pageId, userTokenRef.
+- For health-check / disconnect: channelAccountId.
+
+**Processing Logic**
+1. **Validation:** Ensure feature flag FACEBOOK_PAGE_CONFIG_ENABLED is true, and admin role matches.
+2. **MCP Invocation:** Relay operations to acebook-mcp-server tools (generateOAuthUrl, exchangeCodeAndListPages, connectPage, healthCheckToken).
+3. **Dual Write (Connect):** Create/Update channel_accounts using channelAccountAdminRepository. Dual-write the token reference into 	oken_references table for unified secret mapping. Update channel_accounts.secret_ref.
+4. **Audit Logging:** Log all administrative actions with ctorId: "system" and actorType user/system, ensuring no secrets are passed.
+5. **Airtable Sync:** For connect, disconnect, and health-check, update Airtable safe fields (channel_status, 	oken_status, permission_status).
+
+**Output**
+- Standard JSON responses (success, error). Safe channel_account record returned.
+
+**Error Handling**
+- Missing role -> 403 Forbidden.
+- Feature flag disabled -> 404 Not Found.
+- Meta errors or MCP errors -> Propagated cleanly without raw tokens.
+
+**Audit/Telemetry**
+- Records event types: FACEBOOK_PAGE_OAUTH_STARTED, FACEBOOK_PAGE_CONNECTED, FACEBOOK_PAGE_DISCONNECTED, FACEBOOK_PAGE_AIRTABLE_SYNC_FAILED.
+- Redactor ensures no secrets leak.
+
+**Security Rules**
+- Never send pp_secret or raw token back to the Orchestrator or Admin client.
+- Always use 	oken_references to store the pointer to the real secret store.
+
+**Change History**
+- 2026-06-02: Implemented for US-011.

@@ -32,11 +32,11 @@ export class LlmConfigError extends Error {
   }
 }
 
-export type LlmGenerateOptions = {
+export interface LlmGenerateOptions {
   timeoutMs?: number;
   maxRetries?: number;
   mockScenario?: "happy" | "drift" | "malformed" | "injection" | "timeout" | "rate_limit" | "empty_hashtags";
-};
+}
 
 export interface LlmAdapter {
   generateContent(
@@ -46,11 +46,21 @@ export interface LlmAdapter {
   ): Promise<string>;
 }
 
-export class GeminiLlmAdapter implements LlmAdapter {
-  private apiKey: string;
-  private model: string;
+type GeminiResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+};
 
-  constructor(apiKey: string, model: string = "gemini-2.5-pro") {
+export class GeminiLlmAdapter implements LlmAdapter {
+  private readonly apiKey: string;
+  private readonly model: string;
+
+  constructor(apiKey: string, model = "gemini-2.5-pro") {
     this.apiKey = apiKey;
     this.model = model;
   }
@@ -71,88 +81,115 @@ export class GeminiLlmAdapter implements LlmAdapter {
     }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
-    const timeoutMs = options?.timeoutMs || 30_000;
-    const maxRetries = options?.maxRetries !== undefined ? options.maxRetries : 3;
+    const timeoutMs = options?.timeoutMs ?? 30_000;
+    const maxRetries = options?.maxRetries ?? 3;
 
     let attempt = 0;
-    let delay = 1000;
 
     while (attempt <= maxRetries) {
       attempt++;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const timer = setTimeout(() => { controller.abort(); }, timeoutMs);
 
       try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [{ text: userPrompt }]
-              }
-            ],
-            systemInstruction: {
-              parts: [{ text: systemPrompt }]
-            },
-            generationConfig: {
-              temperature: 0.2,
-              responseMimeType: "application/json"
-            }
-          }),
-          signal: controller.signal
-        });
-
-        if (response.status === 429) {
-          throw new LlmRateLimitError("Gemini API rate limit hit (HTTP 429)");
-        }
-
-        if (response.status === 502 || response.status === 503 || response.status === 504) {
-          throw new LlmServiceError(`Gemini service unavailable (HTTP ${response.status})`);
-        }
-
-        if (!response.ok) {
-          const text = await response.text().catch(() => "");
-          throw new LlmServiceError(`Gemini request failed (HTTP ${response.status}): ${text}`);
-        }
-
-        const data = await response.json();
-        const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        
-        if (!generatedText) {
-          throw new LlmServiceError("Gemini returned an empty candidate list or text block");
-        }
-
-        return generatedText;
+        return await this.callGeminiOnce(url, systemPrompt, userPrompt, controller.signal);
       } catch (err: unknown) {
-        const isRetryable =
-          err instanceof LlmRateLimitError ||
-          err instanceof LlmServiceError ||
-          (err instanceof DOMException && err.name === "AbortError") ||
-          (err instanceof TypeError && err.message.includes("fetch"));
-
-        const isTimeout = err instanceof DOMException && err.name === "AbortError";
-
-        if (attempt > maxRetries || !isRetryable) {
-          if (isTimeout) {
-            throw new LlmTimeoutError(`Gemini API request timed out after ${timeoutMs}ms`);
-          }
-          throw this.sanitizeError(err);
-        }
-
-        // Wait with exponential backoff + jitter
-        const jitter = Math.random() * 200;
-        const sleepTime = delay * Math.pow(2, attempt - 1) + jitter;
-        await new Promise((r) => setTimeout(r, sleepTime));
+        this.throwIfRetryExhausted(err, attempt, maxRetries, timeoutMs);
+        await this.waitBeforeRetry(attempt);
       } finally {
         clearTimeout(timer);
       }
     }
 
     throw new LlmServiceError("Max retries exceeded");
+  }
+
+  private async callGeminiOnce(
+    url: string,
+    systemPrompt: string,
+    userPrompt: string,
+    signal: AbortSignal
+  ): Promise<string> {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }]
+          }
+        ],
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: "application/json"
+        }
+      }),
+      signal
+    });
+
+    await this.throwForGeminiError(response);
+
+    const data = await response.json() as GeminiResponse;
+    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!generatedText) {
+      throw new LlmServiceError("Gemini returned an empty candidate list or text block");
+    }
+
+    return generatedText;
+  }
+
+  private async throwForGeminiError(response: Response): Promise<void> {
+    if (response.status === 429) {
+      throw new LlmRateLimitError("Gemini API rate limit hit (HTTP 429)");
+    }
+
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new LlmServiceError(`Gemini service unavailable (HTTP ${response.status})`);
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new LlmServiceError(`Gemini request failed (HTTP ${response.status}): ${text}`);
+    }
+  }
+
+  private throwIfRetryExhausted(err: unknown, attempt: number, maxRetries: number, timeoutMs: number): void {
+    if (attempt <= maxRetries && this.isRetryableError(err)) {
+      return;
+    }
+
+    if (this.isTimeoutError(err)) {
+      throw new LlmTimeoutError(`Gemini API request timed out after ${timeoutMs}ms`);
+    }
+
+    throw this.sanitizeError(err);
+  }
+
+  private isRetryableError(err: unknown): boolean {
+    return (
+      err instanceof LlmRateLimitError ||
+      err instanceof LlmServiceError ||
+      this.isTimeoutError(err) ||
+      (err instanceof TypeError && err.message.includes("fetch"))
+    );
+  }
+
+  private isTimeoutError(err: unknown): boolean {
+    return err instanceof DOMException && err.name === "AbortError";
+  }
+
+  private async waitBeforeRetry(attempt: number): Promise<void> {
+    const baseDelayMs = 1000;
+    const jitterMs = Math.random() * 200;
+    const sleepTime = baseDelayMs * (2 ** (attempt - 1)) + jitterMs;
+    await new Promise((resolve) => setTimeout(resolve, sleepTime));
   }
 
   private handleMockScenario(scenario: string): string {

@@ -21,7 +21,7 @@ export function isPrivateOrLocalIp(ip: string): boolean {
   if (ip === "::1" || ip === "0.0.0.0") return true;
 
   // IPv4 check
-  const ipv4Match = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  const ipv4Match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
   if (ipv4Match) {
     const o1 = parseInt(ipv4Match[1], 10);
     const o2 = parseInt(ipv4Match[2], 10);
@@ -51,17 +51,17 @@ export function isPrivateOrLocalIp(ip: string): boolean {
   return false;
 }
 
-export type NotionBrief = {
+export interface NotionBrief {
   brief_summary?: string;
   brand_voice?: string;
   do_terms?: string[];
   avoid_terms?: string[];
   legal_notes?: string;
-};
+}
 
-export type NotionDnsResolver = {
+export interface NotionDnsResolver {
   resolve(hostname: string): Promise<string[]>;
-};
+}
 
 export class NotionClient {
   private allowedHosts = new Set(["api.notion.com", "www.notion.so", "notion.so"]);
@@ -136,7 +136,7 @@ export class NotionClient {
       const url = new URL(validatedUrlStr);
       const parts = url.pathname.split("/");
       const lastPart = parts[parts.length - 1] || "";
-      const matches = lastPart.match(/[a-f0-9]{32}/i);
+      const matches = /[a-f0-9]{32}/i.exec(lastPart);
       const pageId = matches ? matches[0] : lastPart;
 
       if (!pageId) {
@@ -162,7 +162,17 @@ export class NotionClient {
         throw new NotionFetchError(`Notion API error (HTTP ${response.status})`);
       }
 
-      const pageData = await response.json();
+      type NotionSelectOption = { name: string };
+      type NotionRichText = { plain_text: string };
+      type NotionProperty = {
+        rich_text?: NotionRichText[];
+        multi_select?: NotionSelectOption[];
+      };
+      type NotionPageResponse = {
+        properties?: Record<string, NotionProperty>;
+      };
+
+      const pageData = await response.json() as NotionPageResponse;
       
       // Basic block extraction - for MVP we fetch page properties
       const properties = pageData.properties || {};
@@ -170,8 +180,8 @@ export class NotionClient {
       return {
         brief_summary: properties.brief_summary?.rich_text?.[0]?.plain_text || "",
         brand_voice: properties.brand_voice?.rich_text?.[0]?.plain_text || "",
-        do_terms: properties.do_terms?.multi_select?.map((x: any) => x.name) || [],
-        avoid_terms: properties.avoid_terms?.multi_select?.map((x: any) => x.name) || [],
+        do_terms: properties.do_terms?.multi_select?.map((x) => x.name) || [],
+        avoid_terms: properties.avoid_terms?.multi_select?.map((x) => x.name) || [],
         legal_notes: properties.legal_notes?.rich_text?.[0]?.plain_text || ""
       };
     } catch (err: unknown) {

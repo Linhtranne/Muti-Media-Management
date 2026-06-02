@@ -1,8 +1,7 @@
 import type pg from "pg";
-import type { AirtableApprovedQueueMessage } from "@mediaops/shared-contracts";
-import type { WebhookEventStatus } from "@mediaops/shared-contracts";
+import type { AirtableApprovedQueueMessage, WebhookEventStatus } from "@mediaops/shared-contracts";
 
-export type InsertWebhookEventInput = {
+export interface InsertWebhookEventInput {
   eventId: string;
   workspaceId: string;
   airtableRecordId: string;
@@ -10,14 +9,14 @@ export type InsertWebhookEventInput = {
   correlationId: string;
   causationId: string;
   metadata?: Record<string, unknown>;
-};
+}
 
-export type WebhookEventRow = {
+export interface WebhookEventRow {
   id: string;
   eventId: string;
   status: WebhookEventStatus;
   duplicate: boolean;
-};
+}
 
 export class WebhookEventRepository {
   async insertReceived(client: pg.PoolClient, input: InsertWebhookEventInput): Promise<WebhookEventRow> {

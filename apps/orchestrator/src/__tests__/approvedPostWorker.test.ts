@@ -36,7 +36,7 @@ describe("ApprovedPostWorker", () => {
       async fetchCampaignRecord() {
         return {};
       },
-      async updateVariantDraft() {
+      async updateRecord() {}, async updateVariantDraft() {
         return;
       }
     };
@@ -48,7 +48,7 @@ describe("ApprovedPostWorker", () => {
       fields: {
         status: "Approved",
         is_valid_for_approval: 1,
-        scheduled_at: "2026-06-01T12:00:00.000Z",
+        scheduled_at: "2030-06-01T12:00:00.000Z",
         master_copy: "Valid content copy",
         approved_at: "2026-05-27T08:00:00.000Z",
         target_channels: ["Facebook"],
@@ -130,8 +130,8 @@ describe("ApprovedPostWorker", () => {
     assert.equal(aiMessage?.workspace_id, workspaceId);
     assert.equal(typeof aiMessage?.workflow_run_id, "string");
     assert.match(aiMessage?.idempotency_key, /^ai\.compose\.facebook:ws_test_123:[^:]+:fb_composer_v1\.0\.0$/);
-    assert.equal(Object.prototype.hasOwnProperty.call(aiMessage, "master_copy"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(aiMessage, "cta_url"), false);
+    assert.equal(Object.hasOwn(aiMessage, "master_copy"), false);
+    assert.equal(Object.hasOwn(aiMessage, "cta_url"), false);
   });
 
   it("TS-02 Fast-Pass: event already finalized returns immediate ACK", async () => {
@@ -186,7 +186,7 @@ describe("ApprovedPostWorker", () => {
               return { rows: [{ status: "received", is_finalized: false, id: "uuid-evt-123" }] };
             }
             if (text.includes("UPDATE webhook_events")) {
-              if (values && values.includes("state_changed_ignored")) {
+              if (values?.includes("state_changed_ignored")) {
                 ignoredStatus = "state_changed_ignored";
               }
               return { rows: [{ id: "uuid-evt-123" }] };
@@ -232,7 +232,7 @@ describe("ApprovedPostWorker", () => {
               return { rows: [{ status: "received", is_finalized: false, id: "uuid-evt-123" }] };
             }
             if (text.includes("UPDATE webhook_events")) {
-              if (values && values.includes("already_advanced_ignored")) {
+              if (values?.includes("already_advanced_ignored")) {
                 ignoredStatus = "already_advanced_ignored";
               }
               return { rows: [{ id: "uuid-evt-123" }] };
@@ -405,7 +405,7 @@ describe("ApprovedPostWorker", () => {
       async fetchCampaignRecord() {
         throw new Error("Not implemented in mock");
       },
-      async updateVariantDraft() {
+      async updateRecord() {}, async updateVariantDraft() {
         return;
       }
     };
@@ -451,7 +451,7 @@ describe("ApprovedPostWorker", () => {
       async fetchCampaignRecord() {
         throw new Error("Not implemented in mock");
       },
-      async updateVariantDraft() {
+      async updateRecord() {}, async updateVariantDraft() {
         return;
       }
     };
@@ -494,7 +494,7 @@ describe("ApprovedPostWorker", () => {
       fields: {
         status: "Approved",
         is_valid_for_approval: 1,
-        scheduled_at: "2026-06-01T12:00:00.000Z",
+        scheduled_at: "2030-06-01T12:00:00.000Z",
         master_copy: "Valid content copy",
         approved_at: "2026-05-27T08:00:00.000Z",
         target_channels: ["Facebook"],

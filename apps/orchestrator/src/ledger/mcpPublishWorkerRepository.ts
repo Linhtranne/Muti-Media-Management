@@ -1,16 +1,16 @@
-import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import type { PublishFacebookExecuteEvent, PublishPostInput, PublishPostResult } from "@mediaops/shared-contracts";
+import { AuditLogRepository } from "./auditLogRepository.js";
 
-export type McpPublishContext = {
+export interface McpPublishContext {
   job: {
     id: string;
     workspace_id: string;
     status: string;
   };
   airtable_record_id: string;
-  input: PublishPostInput;
-};
+  input: PublishPostInput | null;
+}
 
 export class McpPublishWorkerRepository {
   async loadAndLockContext(
@@ -31,7 +31,7 @@ export class McpPublishWorkerRepository {
 
     if (job.status === "published" || job.status === "failed") {
       // Already finished, no-op
-      return { job, airtable_record_id: "", input: null as any };
+      return { job, airtable_record_id: "", input: null };
     }
 
     if (job.status !== "validated") {
@@ -40,7 +40,7 @@ export class McpPublishWorkerRepository {
       return null;
     }
 
-    const variantResult = await client.query<{ id: string; body: string; hashtags: any[]; cta_url: string | null; airtable_record_id: string }>(
+    const variantResult = await client.query<{ id: string; body: string; hashtags: string[]; cta_url: string | null; airtable_record_id: string }>(
       `SELECT id, body, hashtags, cta_url, airtable_record_id FROM content_variants
        WHERE id = $1 AND workspace_id = $2`,
       [message.variantId, workspaceId]
@@ -93,6 +93,8 @@ export class McpPublishWorkerRepository {
     correlationId: string,
     result: PublishPostResult
   ): Promise<void> {
+    const auditRepo = new AuditLogRepository();
+
     await client.query(
       `UPDATE publish_jobs
        SET status = 'published',
@@ -113,15 +115,28 @@ export class McpPublishWorkerRepository {
          WHERE id = (SELECT workflow_run_id FROM publish_jobs WHERE id = $1)`,
         [jobId]
       );
-    } catch (e) {
-      // Ignore if enum doesn't support it
+    } catch (error) {
+      await auditRepo.insertAuditLog(client, {
+        workspaceId,
+        eventType: 'workflow_status_update_skipped',
+        entityType: 'publish_job',
+        entityId: jobId,
+        actorType: 'system',
+        actorId: 'mcp_publish_worker',
+        severity: 'warn',
+        metadata: { target_status: 'mcp_publish_completed', error: String(error) }
+      });
     }
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'mcp_publish_worker', 'mcp_publish_completed', 'publish_job', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, jobId, JSON.stringify({ external_post_id: result.externalPostId, correlation_id: correlationId })]
-    );
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'mcp_publish_completed',
+      entityType: 'publish_job',
+      entityId: jobId,
+      actorType: 'system',
+      actorId: 'mcp_publish_worker',
+      metadata: { external_post_id: result.externalPostId, correlation_id: correlationId }
+    });
   }
 
   async persistTransientFailure(
@@ -145,6 +160,8 @@ export class McpPublishWorkerRepository {
     errorCode: string,
     errorMessage: string
   ): Promise<void> {
+    const auditRepo = new AuditLogRepository();
+
     await client.query(
       `UPDATE publish_jobs
        SET status = 'failed',
@@ -161,15 +178,28 @@ export class McpPublishWorkerRepository {
          WHERE id = (SELECT workflow_run_id FROM publish_jobs WHERE id = $1)`,
         [jobId]
       );
-    } catch (e) {
-      // Ignore if enum doesn't support it
+    } catch (error) {
+      await auditRepo.insertAuditLog(client, {
+        workspaceId,
+        eventType: 'workflow_status_update_skipped',
+        entityType: 'publish_job',
+        entityId: jobId,
+        actorType: 'system',
+        actorId: 'mcp_publish_worker',
+        severity: 'warn',
+        metadata: { target_status: 'mcp_publish_failed', error: String(error) }
+      });
     }
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'mcp_publish_worker', 'mcp_publish_failed', 'publish_job', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, jobId, JSON.stringify({ error_code: errorCode, correlation_id: correlationId })]
-    );
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'mcp_publish_failed',
+      entityType: 'publish_job',
+      entityId: jobId,
+      actorType: 'system',
+      actorId: 'mcp_publish_worker',
+      metadata: { error_code: errorCode, correlation_id: correlationId }
+    });
   }
 
   async persistAirtableCompensation(
@@ -186,10 +216,15 @@ export class McpPublishWorkerRepository {
       [jobId, workspaceId, errorMsg]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'mcp_publish_worker', 'airtable_compensation_flagged', 'publish_job', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, jobId, JSON.stringify({ error: errorMsg })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'airtable_compensation_flagged',
+      entityType: 'publish_job',
+      entityId: jobId,
+      actorType: 'system',
+      actorId: 'mcp_publish_worker',
+      metadata: { error: errorMsg }
+    });
   }
 }

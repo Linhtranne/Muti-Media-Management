@@ -1,20 +1,34 @@
 import amqp from "amqplib";
-import { AirtableApprovedQueueMessageSchema, type AirtableApprovedQueueMessage } from "@mediaops/shared-contracts";
+import type { ChannelModel, ConfirmChannel } from "amqplib";
+import { AirtableApprovedQueueMessageSchema } from "@mediaops/shared-contracts";
 import type { ApprovedPostWorker } from "../workers/approvedPostWorker.js";
 import type { Logger } from "../lib/logger.js";
 
-export type QueueConsumer = {
+const connectRabbitMq = amqp.connect as (url: string) => Promise<ChannelModel>;
+
+type SafeConsumeMessage = Omit<amqp.ConsumeMessage, "fields" | "properties"> & {
+  fields: {
+    exchange: string;
+    routingKey: string;
+  };
+  properties: {
+    messageId?: string;
+    correlationId?: string;
+  };
+};
+
+export interface QueueConsumer {
   start(): Promise<void>;
   stop(): Promise<void>;
-};
+}
 
 export async function createRabbitMqConsumer(
   rabbitmqUrl: string,
   worker: ApprovedPostWorker,
   logger: Logger
 ): Promise<QueueConsumer> {
-  let connection: any = null;
-  let channel: any = null;
+  let connection: ChannelModel | null = null;
+  let channel: ConfirmChannel | null = null;
   let isStopping = false;
 
   const exchange = "airtable.webhooks";
@@ -25,15 +39,16 @@ export async function createRabbitMqConsumer(
   async function moveToDlq(msg: amqp.Message, errorCode: string, errorMessage: string): Promise<void> {
     if (!channel) return;
 
-    const messageId = msg.properties.messageId || "unknown-msg-id";
+    const safeMsg = msg as SafeConsumeMessage;
+    const messageId = safeMsg.properties.messageId ?? "unknown-msg-id";
     logger.warn("Moving message to DLQ", { messageId, errorCode, errorMessage });
 
     try {
-      const originalContent = msg.content.toString();
+      const originalContent = safeMsg.content.toString();
       const dlqPayload = {
         original_message_id: messageId,
-        correlation_id: msg.properties.correlationId,
-        routing_key: msg.fields.routingKey,
+        correlation_id: safeMsg.properties.correlationId,
+        routing_key: safeMsg.fields.routingKey,
         error_code: errorCode,
         error_message: errorMessage,
         moved_at: new Date().toISOString(),
@@ -46,8 +61,8 @@ export async function createRabbitMqConsumer(
         contentType: "application/json",
         deliveryMode: 2,
         headers: {
-          x_original_exchange: msg.fields.exchange,
-          x_original_routing_key: msg.fields.routingKey,
+          x_original_exchange: safeMsg.fields.exchange,
+          x_original_routing_key: safeMsg.fields.routingKey,
           x_dlq_error_code: errorCode,
           x_dlq_error_message: errorMessage
         }
@@ -72,7 +87,7 @@ export async function createRabbitMqConsumer(
   return {
     async start(): Promise<void> {
       logger.info("Initializing RabbitMQ consumer...");
-      connection = await amqp.connect(rabbitmqUrl);
+      connection = await connectRabbitMq(rabbitmqUrl);
       channel = await connection.createConfirmChannel();
 
       // Assert main topology
@@ -88,7 +103,10 @@ export async function createRabbitMqConsumer(
 
       logger.info("RabbitMQ topology declared. Starting message ingestion...", { queue });
 
-      await channel.consume(queue, async (msg: amqp.ConsumeMessage | null) => {
+      await channel.consume(queue, (msg: amqp.ConsumeMessage | null) => {
+        const activeChannel = channel;
+        if (!activeChannel) return;
+        void (async () => {
         if (!msg) {
           logger.warn("Received empty consumer message (null)");
           return;
@@ -96,18 +114,19 @@ export async function createRabbitMqConsumer(
 
         if (isStopping) {
           logger.warn("Consumer is stopping, rejecting message for requeue", { messageId: msg.properties.messageId });
-          channel.nack(msg, false, true);
+          activeChannel.nack(msg, false, true);
           return;
         }
 
-        const messageId = msg.properties.messageId || "unknown-msg-id";
+        const safeMsg = msg as SafeConsumeMessage;
+        const messageId = safeMsg.properties.messageId ?? "unknown-msg-id";
         const contentStr = msg.content.toString();
 
         try {
           // Parse and validate payload with strict Zod contracts
           let rawPayload: unknown;
           try {
-            rawPayload = JSON.parse(contentStr);
+            rawPayload = JSON.parse(contentStr) as unknown;
           } catch (parseError) {
             logger.error("Malformed JSON in queue message body, routing to DLQ", {
               messageId,
@@ -135,7 +154,7 @@ export async function createRabbitMqConsumer(
           const result = await worker.process(validatedMessage, messageId);
 
           if (result.action === "ack") {
-            channel.ack(msg);
+            activeChannel.ack(msg);
           } else if (result.action === "nack_requeue") {
             logger.warn("Worker returned nack_requeue, sleeping briefly to avoid hot loops", {
               messageId,
@@ -143,7 +162,7 @@ export async function createRabbitMqConsumer(
             });
             // Brief 1s delay to protect CPU/logs from a fast hot loop
             await new Promise((resolve) => setTimeout(resolve, 1000));
-            channel.nack(msg, false, true);
+            activeChannel.nack(msg, false, true);
           } else if (result.action === "nack_dlq") {
             logger.error("Worker returned nack_dlq, routing to DLQ", {
               messageId,
@@ -158,11 +177,12 @@ export async function createRabbitMqConsumer(
           });
           try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
-            channel.nack(msg, false, true);
+            activeChannel.nack(msg, false, true);
           } catch (nackError) {
             logger.error("Failed to NACK message after unhandled exception", { messageId, error: String(nackError) });
           }
         }
+        })();
       });
     },
 

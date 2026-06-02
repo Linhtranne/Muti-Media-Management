@@ -172,7 +172,7 @@ describe("redact — array handling", () => {
       { token: "tok_abc", id: "1" },
       { id: "2", safe: "value" }
     ];
-    const result = redact(input) as Array<{ token?: string; id: string; safe?: string }>;
+    const result = redact(input) as { token?: string; id: string; safe?: string }[];
     assert.equal(result[0]?.token, "[REDACTED]", "Array item token should be redacted");
     assert.equal(result[0]?.id, "1", "Array item id should be unchanged");
     assert.equal(result[1]?.safe, "value", "Second array item safe field should be unchanged");

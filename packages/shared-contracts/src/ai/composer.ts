@@ -140,7 +140,7 @@ export const AiComposerQueueMessageSchema = z
   .strict()
   .superRefine((value, ctx) => {
     for (const field of forbiddenAiQueueFields) {
-      if (Object.prototype.hasOwnProperty.call(value, field)) {
+      if (Object.hasOwn(value, field)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Forbidden AI queue field: ${field}`,

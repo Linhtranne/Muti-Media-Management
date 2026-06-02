@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import type { PolicyEvaluateRequestedEvent, PublishFacebookRequestedEvent } from "@mediaops/shared-contracts";
 import { POLICY_VERSION, type PolicyEvaluation } from "@mediaops/policy-engine";
+import { AuditLogRepository } from "./auditLogRepository.js";
 
-export type PolicyContext = {
+export interface PolicyContext {
   variant: {
     id: string;
     workspace_id: string;
@@ -33,16 +34,16 @@ export type PolicyContext = {
     utmWarnOnly: boolean;
     forbiddenTerms: string[];
   };
-};
+}
 
-export type PersistPolicyResult = {
+export interface PersistPolicyResult {
   status: "duplicate" | "ineligible" | "persisted";
   allowed?: boolean;
   resultId?: string;
   publishEvent?: PublishFacebookRequestedEvent;
-  blockers?: Array<{ code: string; detail: string }>;
-  warnings?: Array<{ code: string; detail: string }>;
-};
+  blockers?: { code: string; detail: string }[];
+  warnings?: { code: string; detail: string }[];
+}
 
 export class PolicyWorkerRepository {
   async getExistingResult(
@@ -78,7 +79,7 @@ export class PolicyWorkerRepository {
       [message.content_variant_id, workspaceId]
     );
     const variant = variantResult.rows[0];
-    if (!variant || variant.policy_status !== "pending_policy") {
+    if (variant?.policy_status !== "pending_policy") {
       return null;
     }
 
@@ -90,7 +91,7 @@ export class PolicyWorkerRepository {
       [message.workflow_run_id, workspaceId]
     );
     const workflow = workflowResult.rows[0];
-    if (!workflow || workflow.status !== "ai_generation_completed") {
+    if (workflow?.status !== "ai_generation_completed") {
       return null;
     }
 
@@ -134,11 +135,16 @@ export class PolicyWorkerRepository {
     message: PolicyEvaluateRequestedEvent,
     reason: string
   ): Promise<void> {
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'policy_worker', 'policy_ineligible', 'content_variant', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, message.content_variant_id, JSON.stringify({ reason, correlation_id: message.correlation_id })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'policy_ineligible',
+      entityType: 'content_variant',
+      entityId: message.content_variant_id,
+      actorType: 'system',
+      actorId: 'policy_worker',
+      metadata: { reason, correlation_id: message.correlation_id }
+    });
   }
 
   async persistEvaluation(
@@ -188,23 +194,23 @@ export class PolicyWorkerRepository {
       [context.workflow.id, workspaceId, workflowStatus]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'policy_worker', 'policy_check_completed', 'publish_rule_result', $3, $4::jsonb)`,
-      [
-        randomUUID(),
-        workspaceId,
-        resultId,
-        JSON.stringify({
-          allowed,
-          blocker_codes: evaluation.blockers.map((blocker) => blocker.code),
-          warning_codes: evaluation.warnings.map((warning) => warning.code),
-          correlation_id: message.correlation_id
-        })
-      ]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'policy_check_completed',
+      entityType: 'publish_rule_result',
+      entityId: resultId,
+      actorType: 'system',
+      actorId: 'policy_worker',
+      metadata: {
+        allowed,
+        blocker_codes: evaluation.blockers.map((blocker) => blocker.code),
+        warning_codes: evaluation.warnings.map((warning) => warning.code),
+        correlation_id: message.correlation_id
+      }
+    });
 
-    if (!allowed || !context.channelAccount || context.workspaceConfig.autoPublishEnabled !== true || context.workspaceConfig.autoApproveEnabled !== true) {
+    if (!allowed || !context.channelAccount || !context.workspaceConfig.autoPublishEnabled || !context.workspaceConfig.autoApproveEnabled) {
       return {
         status: "persisted",
         allowed,
@@ -248,11 +254,15 @@ export class PolicyWorkerRepository {
       ]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'policy_worker', 'publish_job_stub_created', 'publish_job', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, jobId, JSON.stringify({ result_id: resultId, correlation_id: message.correlation_id })]
-    );
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'publish_job_stub_created',
+      entityType: 'publish_job',
+      entityId: jobId,
+      actorType: 'system',
+      actorId: 'policy_worker',
+      metadata: { result_id: resultId, correlation_id: message.correlation_id }
+    });
 
     return {
       status: "persisted",
@@ -290,10 +300,15 @@ export class PolicyWorkerRepository {
       [resultId, workspaceId]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'policy_worker', 'policy_airtable_sync_failed', 'publish_rule_result', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, resultId, JSON.stringify({ error_message: errorMessage })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'policy_airtable_sync_failed',
+      entityType: 'publish_rule_result',
+      entityId: resultId,
+      actorType: 'system',
+      actorId: 'policy_worker',
+      metadata: { error_message: errorMessage }
+    });
   }
 }

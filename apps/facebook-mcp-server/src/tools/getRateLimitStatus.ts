@@ -1,5 +1,5 @@
-import { GetRateLimitStatusInput, RateLimitStatusResult } from "@mediaops/shared-contracts";
-import { SecretStore } from "../lib/secretStore.js";
+import { type GetRateLimitStatusInput, type RateLimitStatusResult } from "@mediaops/shared-contracts";
+import { type SecretStore } from "../lib/secretStore.js";
 
 // MVP implementation: Since Facebook doesn't return quota easily until we hit it,
 // we just assume a daily limit from an env var or a hardcoded default (e.g., 25).

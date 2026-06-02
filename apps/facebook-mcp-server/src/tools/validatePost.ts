@@ -1,8 +1,12 @@
-import { ValidatePostInput, ValidatePostResult, McpViolationCode, McpWarningCode } from "@mediaops/shared-contracts";
-import { SecretStore } from "../lib/secretStore.js";
+import { type ValidatePostInput, type ValidatePostResult, type McpViolationCode, type McpWarningCode } from "@mediaops/shared-contracts";
+import { type SecretStore } from "../lib/secretStore.js";
 
 const FB_MAX_LENGTH = 63206;
 const FB_MAX_HASHTAGS = 30;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
+}
 
 export async function validatePostHandler(
   input: ValidatePostInput,
@@ -16,10 +20,10 @@ export async function validatePostHandler(
     // In MVP, we don't call Facebook Graph API directly for validate.
     // If we wanted to, we would call it here.
     await secretStore.resolveSecret(input.secretRef);
-  } catch (error: any) {
+  } catch (error: unknown) {
     violations.push({
       code: "PLATFORM_TOKEN_INVALID",
-      detail: `Failed to resolve credentials: ${error.message}`
+      detail: `Failed to resolve credentials: ${errorMessage(error)}`
     });
     return {
       passed: false,
@@ -33,7 +37,7 @@ export async function validatePostHandler(
   if (input.variantRef.bodyLength > FB_MAX_LENGTH) {
     violations.push({
       code: "PLATFORM_TEXT_TOO_LONG",
-      detail: `Body length ${input.variantRef.bodyLength} exceeds Facebook maximum of ${FB_MAX_LENGTH} characters.`
+      detail: `Body length ${String(input.variantRef.bodyLength)} exceeds Facebook maximum of ${String(FB_MAX_LENGTH)} characters.`
     });
   }
 
@@ -41,7 +45,7 @@ export async function validatePostHandler(
   if (input.variantRef.hashtagCount > FB_MAX_HASHTAGS) {
     warnings.push({
       code: "HASHTAG_COUNT_HIGH",
-      detail: `Hashtag count ${input.variantRef.hashtagCount} exceeds recommended maximum of ${FB_MAX_HASHTAGS}.`
+      detail: `Hashtag count ${String(input.variantRef.hashtagCount)} exceeds recommended maximum of ${String(FB_MAX_HASHTAGS)}.`
     });
   }
 

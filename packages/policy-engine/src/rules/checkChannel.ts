@@ -2,7 +2,7 @@ import type { PolicyChannelAccountInput, PolicyCheck, PolicyTokenReferenceInput 
 import { blocked, passed } from "./helpers.js";
 
 export function checkChannelAccountActive(channelAccount: PolicyChannelAccountInput | null): PolicyCheck {
-  if (!channelAccount || channelAccount.status !== "active") {
+  if (channelAccount?.status !== "active") {
     return blocked("checkChannelAccountActive", "CHANNEL_ACCOUNT_INACTIVE", "Facebook channel account is not active");
   }
 
@@ -10,7 +10,7 @@ export function checkChannelAccountActive(channelAccount: PolicyChannelAccountIn
 }
 
 export function checkChannelToken(tokenReference: PolicyTokenReferenceInput | null, now: Date = new Date()): PolicyCheck {
-  if (!tokenReference || tokenReference.tokenStatus !== "valid") {
+  if (tokenReference?.tokenStatus !== "valid") {
     return blocked("checkChannelToken", "INVALID_CHANNEL_TOKEN", "Facebook token reference is missing or invalid");
   }
 

@@ -1,10 +1,10 @@
 import pg from "pg";
 
-export type Database = {
+export interface Database {
   transaction<T>(workspaceId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T>;
   query<R extends pg.QueryResultRow = Record<string, unknown>>(text: string, values?: unknown[]): Promise<pg.QueryResult<R>>;
   getPool(): pg.Pool;
-};
+}
 
 export function assertRlsGovernedConnectionString(connectionString: string): void {
   let decoded = connectionString;

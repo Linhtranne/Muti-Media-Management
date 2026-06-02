@@ -1,14 +1,28 @@
 import amqp from "amqplib";
-import type { AirtableApprovedQueueMessage, AiComposerQueueMessage, PublishFacebookRequestedEvent } from "@mediaops/shared-contracts";
+import type {
+  AirtableApprovedQueueMessage,
+  AiComposerQueueMessage,
+  PublishFacebookExecuteEvent,
+  PublishFacebookRequestedEvent,
+  PublishFacebookValidatedEvent,
+  SlackCommandActionEvent,
+  SlackCommentActionEvent,
+  CommentSyncRequestedEvent,
+  CommentIngestEvent
+} from "@mediaops/shared-contracts";
 
-export type QueuePublisher = {
+export interface QueuePublisher {
   publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void>;
   publishAiComposerRequest(message: AiComposerQueueMessage, messageId: string): Promise<void>;
   publishFacebookRequest(message: PublishFacebookRequestedEvent, messageId: string): Promise<void>;
-  publishFacebookValidated(message: import("@mediaops/shared-contracts").PublishFacebookValidatedEvent, messageId: string): Promise<void>;
-  publishFacebookExecute(message: import("@mediaops/shared-contracts").PublishFacebookExecuteEvent, messageId: string): Promise<void>;
+  publishFacebookValidated(message: PublishFacebookValidatedEvent, messageId: string): Promise<void>;
+  publishFacebookExecute(message: PublishFacebookExecuteEvent, messageId: string): Promise<void>;
   publishSlackAlert(message: Record<string, unknown>, messageId: string, correlationId?: string): Promise<void>;
-};
+  publishSlackCommandAction(message: SlackCommandActionEvent, messageId: string): Promise<void>;
+  publishSlackCommentAction(message: SlackCommentActionEvent, messageId: string): Promise<void>;
+  publishCommentSyncRequest(message: CommentSyncRequestedEvent, messageId: string): Promise<void>;
+  publishCommentIngest(message: CommentIngestEvent, messageId: string): Promise<void>;
+}
 
 export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<QueuePublisher> {
   const connection = await amqp.connect(rabbitmqUrl);
@@ -26,6 +40,9 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
   const alertsExchange = "alerts";
   const slackAlertQueue = "alerts.slack.send";
   const slackAlertRoutingKey = "alerts.slack.send";
+  const slackExchange = "slack.workflows";
+  const slackCommandQueue = "slack.post_approval.requested";
+  const slackCommandRoutingKey = "slack.post_approval.requested";
 
   await channel.assertExchange(exchange, "topic", { durable: true });
   await channel.assertQueue(queue, { durable: true });
@@ -39,6 +56,16 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
   await channel.assertExchange(alertsExchange, "topic", { durable: true });
   await channel.assertQueue(slackAlertQueue, { durable: true });
   await channel.bindQueue(slackAlertQueue, alertsExchange, slackAlertRoutingKey);
+  await channel.assertExchange(slackExchange, "topic", { durable: true });
+  await channel.assertQueue(slackCommandQueue, { durable: true });
+  await channel.bindQueue(slackCommandQueue, slackExchange, slackCommandRoutingKey);
+
+  const slackCommentActionQueue = "slack.comment_action.requested";
+  const slackCommentActionRoutingKey = "slack.comment_action.requested";
+  await channel.assertQueue(slackCommentActionQueue, { durable: true });
+  await channel.bindQueue(slackCommentActionQueue, slackExchange, slackCommentActionRoutingKey);
+
+  await channel.assertExchange("comments.workflows", "topic", { durable: true });
 
   return {
     async publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void> {
@@ -113,7 +140,7 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       await channel.waitForConfirms();
     },
 
-    async publishFacebookValidated(message: import("@mediaops/shared-contracts").PublishFacebookValidatedEvent, messageId: string): Promise<void> {
+    async publishFacebookValidated(message: PublishFacebookValidatedEvent, messageId: string): Promise<void> {
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, "publish.facebook.validated", body, {
         contentType: "application/json",
@@ -131,7 +158,7 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       await channel.waitForConfirms();
     },
 
-    async publishFacebookExecute(message: import("@mediaops/shared-contracts").PublishFacebookExecuteEvent, messageId: string): Promise<void> {
+    async publishFacebookExecute(message: PublishFacebookExecuteEvent, messageId: string): Promise<void> {
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, "publish.facebook.execute", body, {
         contentType: "application/json",
@@ -139,6 +166,85 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
         messageId,
         correlationId: message.correlationId,
         type: message.eventType,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+    },
+
+    async publishSlackCommandAction(message: SlackCommandActionEvent, messageId: string): Promise<void> {
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(slackExchange, slackCommandRoutingKey, body, {
+        contentType: "application/json",
+        deliveryMode: 2,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+    },
+
+    async publishSlackCommentAction(message: SlackCommentActionEvent, messageId: string): Promise<void> {
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(slackExchange, slackCommentActionRoutingKey, body, {
+        contentType: "application/json",
+        deliveryMode: 2,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+    },
+
+    async publishCommentSyncRequest(message: CommentSyncRequestedEvent, messageId: string): Promise<void> {
+      const body = Buffer.from(JSON.stringify(message));
+      // Ensure comments exchange exists. Our consumers will assert it, but publisher should just publish.
+      const commentsExchange = "comments.workflows";
+      const commentsRoutingKey = "comments.facebook.sync.requested";
+      
+      const ok = channel.publish(commentsExchange, commentsRoutingKey, body, {
+        contentType: "application/json",
+        deliveryMode: 2,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+    },
+
+    async publishCommentIngest(message: CommentIngestEvent, messageId: string): Promise<void> {
+      const body = Buffer.from(JSON.stringify(message));
+      const commentsExchange = "comments.workflows";
+      const commentsRoutingKey = "comments.facebook.ingest";
+      
+      const ok = channel.publish(commentsExchange, commentsRoutingKey, body, {
+        contentType: "application/json",
+        deliveryMode: 2,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
         timestamp: Math.floor(Date.now() / 1000)
       });
 

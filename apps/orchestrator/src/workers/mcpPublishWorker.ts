@@ -1,5 +1,5 @@
 import { McpPublishWorkerRepository } from "../ledger/mcpPublishWorkerRepository.js";
-import { FacebookMcpClient } from "../mcp/facebookMcpClient.js";
+import { type FacebookMcpClient } from "../mcp/facebookMcpClient.js";
 import type { Database } from "../ledger/postgres.js";
 import type { Logger } from "../lib/logger.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
@@ -7,10 +7,10 @@ import type { PublishFacebookExecuteEvent } from "@mediaops/shared-contracts";
 import type { AirtableClient } from "../airtable/airtableClient.js";
 import { redact } from "../lib/redact.js";
 
-export type McpPublishWorkerResult = {
+export interface McpPublishWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: string;
-};
+}
 
 export class McpPublishWorker {
   private readonly repository = new McpPublishWorkerRepository();
@@ -61,7 +61,7 @@ export class McpPublishWorker {
     let publishResult;
     try {
       publishResult = await this.mcpClient.publishPost(context.input);
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Network failure talking to MCP or MCP crashed
       this.logger.error("MCP publish call failed completely", {
         messageId,
@@ -72,7 +72,12 @@ export class McpPublishWorker {
         await this.database.transaction(this.workspaceId, async (client) => {
           await this.repository.persistTransientFailure(client, this.workspaceId, message.jobId);
         });
-      } catch (dbError) {}
+      } catch (dbError) {
+        this.logger.error("Failed to persist MCP publish transient failure", {
+          messageId,
+          error: String(redact(String(dbError)))
+        });
+      }
 
       return { action: "nack_requeue", status: "mcp_call_failed" };
     }
@@ -83,7 +88,7 @@ export class McpPublishWorker {
         await this.database.transaction(this.workspaceId, async (client) => {
           await this.repository.persistSuccess(client, this.workspaceId, message.jobId, message.correlationId, publishResult);
         });
-      } catch (error) {
+      } catch {
         this.logger.error("Failed to persist publish success", { messageId });
         return { action: "nack_requeue", status: "persist_success_failed" };
       }
@@ -91,13 +96,18 @@ export class McpPublishWorker {
       // Airtable Sync (Best effort, non-rollback)
       try {
         await this.airtableClient.updateRecordStatus(this.workspaceId, context.airtable_record_id, "Published");
-      } catch (error: any) {
+      } catch (error: unknown) {
         this.logger.warn("Failed to sync Airtable Published status, flagging for compensation", { messageId });
         try {
           await this.database.transaction(this.workspaceId, async (client) => {
             await this.repository.persistAirtableCompensation(client, this.workspaceId, message.jobId, String(redact(String(error))));
           });
-        } catch (dbError) {}
+        } catch (dbError) {
+          this.logger.error("Failed to persist Airtable compensation", {
+            messageId,
+            error: String(redact(String(dbError)))
+          });
+        }
       }
 
       // Slack Alert
@@ -129,7 +139,12 @@ export class McpPublishWorker {
           await this.database.transaction(this.workspaceId, async (client) => {
             await this.repository.persistTransientFailure(client, this.workspaceId, message.jobId);
           });
-        } catch (dbError) {}
+        } catch (dbError) {
+          this.logger.error("Failed to persist transient publish failure", {
+            messageId,
+            error: String(redact(String(dbError)))
+          });
+        }
         return { action: "nack_requeue", status: "transient_failure" };
       } else {
         // Permanent failure
@@ -141,7 +156,10 @@ export class McpPublishWorker {
             await this.repository.persistPermanentFailure(client, this.workspaceId, message.jobId, message.correlationId, errCode, errMsg);
           });
         } catch (error) {
-          this.logger.error("Failed to persist permanent failure", { messageId });
+          this.logger.error("Failed to persist permanent failure", {
+            messageId,
+            error: String(redact(String(error)))
+          });
           return { action: "nack_requeue", status: "persist_failure_failed" };
         }
 
@@ -150,7 +168,12 @@ export class McpPublishWorker {
           // If we want to set failed on Airtable, we can. The exact Airtable fields depend on schema.
           // Assuming updateRecordStatus supports "Failed".
           await this.airtableClient.updateRecordStatus(this.workspaceId, context.airtable_record_id, "Failed");
-        } catch (error: any) {}
+        } catch (error) {
+          this.logger.warn("Failed to sync Airtable failed status", {
+            messageId,
+            error: String(redact(String(error)))
+          });
+        }
 
         // Slack Alert
         if (this.queuePublisher) {

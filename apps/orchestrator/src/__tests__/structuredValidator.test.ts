@@ -1,7 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { 
-  validateStructuredOutput, 
   extractJsonBlock, 
   normalizeHashtags, 
   verifyCtaAndUtm, 
@@ -69,18 +68,18 @@ describe("structuredValidator — verifyCtaAndUtm", () => {
   const sourceCta = "https://mediaops.com/launch?utm_source=fb&utm_medium=post&utm_campaign=c1";
 
   it("succeeds if output CTA matches source CTA exactly", () => {
-    assert.doesNotThrow(() => verifyCtaAndUtm(sourceCta, sourceCta));
+    assert.doesNotThrow(() => { verifyCtaAndUtm(sourceCta, sourceCta); });
   });
 
   it("succeeds if output CTA matches source but has safe extra query params or rearranged params", () => {
     const outputCta = "https://mediaops.com/launch?utm_medium=post&utm_source=fb&utm_campaign=c1&extra=safe";
-    assert.doesNotThrow(() => verifyCtaAndUtm(sourceCta, outputCta));
+    assert.doesNotThrow(() => { verifyCtaAndUtm(sourceCta, outputCta); });
   });
 
   it("throws CTA_UTM_MUTATED if any UTM parameter is changed or missing", () => {
     const mutatedCta = "https://mediaops.com/launch?utm_source=linkedin&utm_medium=post&utm_campaign=c1";
     assert.throws(
-      () => verifyCtaAndUtm(sourceCta, mutatedCta),
+      () => { verifyCtaAndUtm(sourceCta, mutatedCta); },
       (err: any) => err instanceof ValidationError && err.errorCode === "CTA_UTM_MUTATED"
     );
   });
@@ -88,21 +87,21 @@ describe("structuredValidator — verifyCtaAndUtm", () => {
   it("throws INTENT_DRIFT if the host or path differs", () => {
     const differentHost = "https://evil.com/launch?utm_source=fb&utm_medium=post&utm_campaign=c1";
     assert.throws(
-      () => verifyCtaAndUtm(sourceCta, differentHost),
+      () => { verifyCtaAndUtm(sourceCta, differentHost); },
       (err: any) => err instanceof ValidationError && err.errorCode === "INTENT_DRIFT"
     );
   });
 
   it("throws CTA_URL_MISSING if source has CTA but output lacks it", () => {
     assert.throws(
-      () => verifyCtaAndUtm(sourceCta, null),
+      () => { verifyCtaAndUtm(sourceCta, null); },
       (err: any) => err instanceof ValidationError && err.errorCode === "CTA_URL_MISSING"
     );
   });
 
   it("throws CTA_URL_INVALID if output CTA is malformed", () => {
     assert.throws(
-      () => verifyCtaAndUtm(sourceCta, "not a url"),
+      () => { verifyCtaAndUtm(sourceCta, "not a url"); },
       (err: any) => err instanceof ValidationError && err.errorCode === "CTA_URL_INVALID"
     );
   });
@@ -116,7 +115,7 @@ describe("structuredValidator — detectPromptInjection", () => {
       policy_bypass: true
     };
     assert.throws(
-      () => detectPromptInjection(badObject),
+      () => { detectPromptInjection(badObject); },
       (err: any) => err instanceof ValidationError && err.errorCode === "PROMPT_INJECTION_DETECTED"
     );
   });
@@ -127,6 +126,6 @@ describe("structuredValidator — detectPromptInjection", () => {
       hashtags: ["safe"],
       cta_url: "https://mediaops.com"
     };
-    assert.doesNotThrow(() => detectPromptInjection(cleanObject));
+    assert.doesNotThrow(() => { detectPromptInjection(cleanObject); });
   });
 });

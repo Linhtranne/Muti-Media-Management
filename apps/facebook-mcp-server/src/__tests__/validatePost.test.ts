@@ -9,7 +9,11 @@ class MockSecretStore implements SecretStore {
     if (secretRef === "env:INVALID") {
       throw new Error("SECRET_NOT_FOUND");
     }
-    return "valid-token";
+    return "dummy_token";
+  }
+
+  async storeSecret(workspaceId: string, suffix: string, secretValue: string): Promise<string> {
+    return `env:MOCK_${suffix}`;
   }
 }
 

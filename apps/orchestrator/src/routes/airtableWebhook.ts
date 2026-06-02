@@ -7,7 +7,8 @@ import type { Logger } from "../lib/logger.js";
 export function createAirtableWebhookRouter(ingestor: AirtableWebhookIngestor, logger: Logger): Router {
   const router = express.Router();
 
-  router.post("/webhooks/airtable", async (req: Request, res: Response) => {
+  router.post("/webhooks/airtable", (req: Request, res: Response) => {
+    void (async () => {
     try {
       const result = await ingestor.ingest(req.body);
       res.status(202).json(result);
@@ -30,8 +31,8 @@ export function createAirtableWebhookRouter(ingestor: AirtableWebhookIngestor, l
         message: "Webhook ingestion failed"
       });
     }
+    })();
   });
 
   return router;
 }
-

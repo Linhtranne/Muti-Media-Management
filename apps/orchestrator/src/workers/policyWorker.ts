@@ -7,11 +7,11 @@ import type { Logger } from "../lib/logger.js";
 import { redact } from "../lib/redact.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
 
-export type PolicyQueueWorkerResult = {
+export interface PolicyQueueWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: string;
   errorCode?: string;
-};
+}
 
 export class PolicyWorker {
   private readonly repository = new PolicyWorkerRepository();
@@ -102,8 +102,8 @@ export class PolicyWorker {
     message: PolicyEvaluateRequestedEvent,
     persisted: {
       resultId?: string;
-      blockers?: Array<{ code: string; detail: string }>;
-      warnings?: Array<{ code: string; detail: string }>;
+      blockers?: { code: string; detail: string }[];
+      warnings?: { code: string; detail: string }[];
     },
     messageId: string
   ): Promise<void> {

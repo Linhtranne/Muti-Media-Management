@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { NotionClient, NotionSsrfError } from "../services/notionClient.js";
+import { NotionClient } from "../services/notionClient.js";
 
 describe("NotionClient SSRF Guardrails", () => {
   const client = new NotionClient();

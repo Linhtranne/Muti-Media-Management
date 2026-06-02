@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test --experimental-strip-types src/__tests__/*.test.ts"
+    "test": "node --test dist/__tests__/*.test.js"
   },
   "dependencies": {
     "@mediaops/shared-contracts": "*",

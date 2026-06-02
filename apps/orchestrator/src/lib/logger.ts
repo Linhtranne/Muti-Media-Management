@@ -41,7 +41,6 @@ export class Logger {
       console.warn(line);
       return;
     }
-    console.log(line);
+    process.stdout.write(`${line}\n`);
   }
 }
-

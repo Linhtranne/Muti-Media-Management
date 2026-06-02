@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { createWorkflowIdempotencyKey, type WebhookEventStatus } from "@mediaops/shared-contracts";
+import { AuditLogRepository } from "./auditLogRepository.js";
 
 /**
  * Finalized statuses that trigger fast-pass ACK on redelivery.
@@ -21,18 +22,18 @@ const FINALIZED_STATUSES: ReadonlySet<WebhookEventStatus> = new Set([
   "failed"
 ]);
 
-export type FastPassResult = {
+export interface FastPassResult {
   isFinalized: boolean;
   currentStatus: WebhookEventStatus | null;
   webhookEventId: string | null;
-};
+}
 
-export type VersionAllocationResult = {
+export interface VersionAllocationResult {
   approvedVersion: number;
   idempotencyKey: string;
   workflowRunId: string;
   duplicate: boolean;
-};
+}
 
 export class WorkerRepository {
   /**
@@ -93,11 +94,15 @@ export class WorkerRepository {
     );
 
     // Audit trail
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-       VALUES ($1, $2, 'system', 'queue_worker', 'worker_consumed', 'webhook_event', $3)`,
-      [randomUUID(), workspaceId, webhookEventId]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'worker_consumed',
+      entityType: 'webhook_event',
+      entityId: webhookEventId,
+      actorType: 'system',
+      actorId: 'queue_worker'
+    });
 
     return { webhookEventId };
   }
@@ -127,11 +132,16 @@ export class WorkerRepository {
       [messageId]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'queue_worker', 'worker_acked', 'webhook_event', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, webhookEventId, JSON.stringify({ classified_as: status })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'worker_acked',
+      entityType: 'webhook_event',
+      entityId: webhookEventId,
+      actorType: 'system',
+      actorId: 'queue_worker',
+      metadata: { classified_as: status }
+    });
   }
 
   /**
@@ -148,11 +158,15 @@ export class WorkerRepository {
       [messageId]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-       VALUES ($1, $2, 'system', 'queue_worker', 'worker_redelivery_acked', 'webhook_event', $3)`,
-      [randomUUID(), workspaceId, webhookEventId]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'worker_redelivery_acked',
+      entityType: 'webhook_event',
+      entityId: webhookEventId,
+      actorType: 'system',
+      actorId: 'queue_worker'
+    });
   }
 
   /**
@@ -178,11 +192,16 @@ export class WorkerRepository {
       [messageId]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'queue_worker', 'worker_retryable_failed', 'webhook_event', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, webhookEventId, JSON.stringify({ error_code: errorCode })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'worker_retryable_failed',
+      entityType: 'webhook_event',
+      entityId: webhookEventId,
+      actorType: 'system',
+      actorId: 'queue_worker',
+      metadata: { error_code: errorCode }
+    });
   }
 
   /**
@@ -253,16 +272,16 @@ export class WorkerRepository {
     );
 
     // 7. Audit log
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'queue_worker', 'worker_acked', 'webhook_event', $3, $4::jsonb)`,
-      [
-        randomUUID(),
-        params.workspaceId,
-        params.webhookEventId,
-        JSON.stringify({ approved_version: approvedVersion, idempotency_key: idempotencyKey })
-      ]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId: params.workspaceId,
+      eventType: 'worker_acked',
+      entityType: 'webhook_event',
+      entityId: params.webhookEventId,
+      actorType: 'system',
+      actorId: 'queue_worker',
+      metadata: { approved_version: approvedVersion, idempotency_key: idempotencyKey }
+    });
 
     return { approvedVersion, idempotencyKey, workflowRunId, duplicate: false };
   }

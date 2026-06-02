@@ -6,8 +6,7 @@ import type { Database } from "../ledger/postgres.js";
 import type { AirtableClient } from "../airtable/airtableClient.js";
 import { Logger } from "../lib/logger.js";
 import { 
-  AirtableReloadedRecordSchema,
-  type AirtableReloadedRecord 
+  AirtableReloadedRecordSchema 
 } from "@mediaops/shared-contracts";
 
 const logger = new Logger("error");
@@ -29,7 +28,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
   // SCENARIO 1: Happy Path Generation Flow
   // ──────────────────────────────────────────────
   it("SC-01 Happy Path: claims workflow, reloads Airtable, calls LLM, persists variant & outbox, and syncs Airtable", async () => {
-    let sqlQueries: string[] = [];
+    const sqlQueries: string[] = [];
     let airtableUpdated = false;
     let rlsSet = false;
 
@@ -83,7 +82,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
           campaign_objective: "Launch product innovatively"
         };
       },
-      async updateVariantDraft(recordId, variantId, fields, mapping) {
+      async updateRecord() {}, async updateVariantDraft(recordId, variantId, fields, mapping) {
         airtableUpdated = true;
         assert.equal(fields.ai_generation_status, "Needs Review");
         assert.equal(fields.variant_draft, "Preserving the master copy perfectly with innovation and secure systems!");
@@ -138,7 +137,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
       async updateRecordStatus() {},
       async getPostRecord() { throw new Error("Should not fetch Airtable on duplicate fast-pass"); },
       async fetchCampaignRecord() { throw new Error("Should not fetch Airtable Campaign on duplicate fast-pass"); },
-      async updateVariantDraft() { throw new Error("Should not patch Airtable on duplicate fast-pass"); }
+      async updateRecord() {}, async updateVariantDraft() { throw new Error("Should not patch Airtable on duplicate fast-pass"); }
     };
 
     const adapter = new GeminiLlmAdapter("mock-key");
@@ -196,7 +195,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
         });
       },
       async fetchCampaignRecord() { return {}; },
-      async updateVariantDraft() {}
+      async updateRecord() {}, async updateVariantDraft() {}
     };
 
     process.env.MOCK_LLM_SCENARIO = "rate_limit";
@@ -255,7 +254,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
         });
       },
       async fetchCampaignRecord() { return {}; },
-      async updateVariantDraft(recordId, variantId, fields) {
+      async updateRecord() {}, async updateVariantDraft(recordId, variantId, fields) {
         airtableNotes = fields.ai_review_notes || "";
         assert.equal(fields.ai_generation_status, "Review Blocked");
       }
@@ -320,7 +319,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
         });
       },
       async fetchCampaignRecord() { return {}; },
-      async updateVariantDraft(recordId, variantId, fields) {
+      async updateRecord() {}, async updateVariantDraft(recordId, variantId, fields) {
         airtableNotes = fields.ai_review_notes || "";
         assert.equal(fields.ai_generation_status, "Review Blocked");
       }
@@ -391,7 +390,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
       async fetchCampaignRecord() {
         return {};
       },
-      async updateVariantDraft() {
+      async updateRecord() {}, async updateVariantDraft() {
         throw new Error("PATCH should not run after optimistic guard failure");
       }
     };
@@ -450,7 +449,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
         });
       },
       async fetchCampaignRecord() { return {}; },
-      async updateVariantDraft() {}
+      async updateRecord() {}, async updateVariantDraft() {}
     };
 
     process.env.MOCK_LLM_SCENARIO = "malformed";
@@ -507,7 +506,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
         });
       },
       async fetchCampaignRecord() { return {}; },
-      async updateVariantDraft() {}
+      async updateRecord() {}, async updateVariantDraft() {}
     };
 
     const leakingAdapter = {

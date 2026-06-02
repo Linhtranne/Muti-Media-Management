@@ -1,22 +1,27 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import type { PublishFacebookRequestedEvent, PublishFacebookValidatedEvent } from "@mediaops/shared-contracts";
-import type { ValidatePostResult, ValidatePostInput } from "@mediaops/shared-contracts";
+import type {
+  PublishFacebookRequestedEvent,
+  PublishFacebookValidatedEvent,
+  ValidatePostInput,
+  ValidatePostResult
+} from "@mediaops/shared-contracts";
+import { AuditLogRepository } from "./auditLogRepository.js";
 
-export type McpValidateContext = {
+export interface McpValidateContext {
   job: {
     id: string;
     workspace_id: string;
     status: string;
   };
   input: ValidatePostInput;
-};
+}
 
-export type PersistValidationResult = {
+export interface PersistValidationResult {
   status: "duplicate" | "ineligible" | "persisted";
   passed?: boolean;
   publishEvent?: PublishFacebookValidatedEvent;
-};
+}
 
 export class McpValidateWorkerRepository {
   async getExistingResult(
@@ -52,11 +57,11 @@ export class McpValidateWorkerRepository {
     );
 
     const job = jobResult.rows[0];
-    if (!job || job.status !== "queued") {
+    if (job?.status !== "queued") {
       return null;
     }
 
-    const variantResult = await client.query<{ id: string; body: string; hashtags: any[]; cta_url: string | null }>(
+    const variantResult = await client.query<{ id: string; body: string; hashtags: string[]; cta_url: string | null }>(
       `SELECT id, body, hashtags, cta_url FROM content_variants
        WHERE id = $1 AND workspace_id = $2`,
       [message.variant_id, workspaceId]
@@ -117,16 +122,16 @@ export class McpValidateWorkerRepository {
       [context.job.id, workspaceId, newStatus, message.idempotency_key, JSON.stringify(result)]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'mcp_validate_worker', 'mcp_validation_completed', 'publish_job', $3, $4::jsonb)`,
-      [
-        randomUUID(),
-        workspaceId,
-        context.job.id,
-        JSON.stringify({ passed: result.passed, correlation_id: message.correlation_id })
-      ]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'mcp_validation_completed',
+      entityType: 'publish_job',
+      entityId: context.job.id,
+      actorType: 'system',
+      actorId: 'mcp_validate_worker',
+      metadata: { passed: result.passed, correlation_id: message.correlation_id }
+    });
 
     if (!result.passed) {
       return { status: "persisted", passed: false };
@@ -182,10 +187,15 @@ export class McpValidateWorkerRepository {
     message: PublishFacebookRequestedEvent,
     reason: string
   ): Promise<void> {
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'mcp_validate_worker', 'validation_ineligible', 'publish_job', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, message.job_id, JSON.stringify({ reason, correlation_id: message.correlation_id })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'validation_ineligible',
+      entityType: 'publish_job',
+      entityId: message.job_id,
+      actorType: 'system',
+      actorId: 'mcp_validate_worker',
+      metadata: { reason, correlation_id: message.correlation_id }
+    });
   }
 }

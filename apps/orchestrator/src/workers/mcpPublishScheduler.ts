@@ -40,16 +40,16 @@ export class McpPublishScheduler {
               });
             }
           });
-        } catch (error: any) {
+        } catch (error: unknown) {
           this.logger.error("Failed to enqueue execute event for job", {
             jobId: job.id,
-            error: error.message
+            error: error instanceof Error ? error.message : String(error)
           });
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.logger.error("MCP Publish Scheduler poll failed", {
-        error: error.message
+        error: error instanceof Error ? error.message : String(error)
       });
     }
   }

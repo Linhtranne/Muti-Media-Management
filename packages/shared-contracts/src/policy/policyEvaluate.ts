@@ -36,7 +36,7 @@ export const PolicyEvaluateRequestedEventSchema = z
   .strict()
   .superRefine((value, ctx) => {
     for (const field of forbiddenPolicyQueueFields) {
-      if (Object.prototype.hasOwnProperty.call(value, field)) {
+      if (Object.hasOwn(value, field)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Forbidden policy queue field: ${field}`,
@@ -66,7 +66,7 @@ export const PublishFacebookRequestedEventSchema = z
   .strict()
   .superRefine((value, ctx) => {
     for (const field of forbiddenPolicyQueueFields) {
-      if (Object.prototype.hasOwnProperty.call(value, field)) {
+      if (Object.hasOwn(value, field)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Forbidden publish queue field: ${field}`,

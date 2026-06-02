@@ -2,7 +2,6 @@ import { URL } from "node:url";
 import { 
   StructuredComposerOutputSchema, 
   type StructuredComposerOutput,
-  AiErrorCodeSchema,
   type AiErrorCode
 } from "@mediaops/shared-contracts";
 
@@ -26,7 +25,7 @@ export function extractJsonBlock(rawText: string): string {
   return rawText.slice(startIdx, endIdx + 1);
 }
 
-export function normalizeHashtags(tags: any): string[] {
+export function normalizeHashtags(tags: unknown): string[] {
   if (!Array.isArray(tags)) {
     throw new ValidationError("SCHEMA_PARSING_FAILED", "Hashtags must be an array");
   }
@@ -101,10 +100,10 @@ export function verifyCtaAndUtm(sourceCta: string | null | undefined, outputCta:
   }
 }
 
-export function detectPromptInjection(parsedObject: Record<string, any>): void {
+export function detectPromptInjection(parsedObject: Record<string, unknown>): void {
   const dangerousKeys = ["approved", "publish", "platform_override", "policy_bypass"];
   for (const key of dangerousKeys) {
-    if (Object.prototype.hasOwnProperty.call(parsedObject, key)) {
+    if (Object.hasOwn(parsedObject, key)) {
       throw new ValidationError(
         "PROMPT_INJECTION_DETECTED",
         `Dangerous override key "${key}" detected in AI structured output`
@@ -118,7 +117,7 @@ export function validateStructuredOutput(
   sourceCtaUrl?: string | null
 ): StructuredComposerOutput {
   const jsonStr = extractJsonBlock(rawText);
-  let parsed: any;
+  let parsed: unknown;
 
   try {
     parsed = JSON.parse(jsonStr);
@@ -127,7 +126,11 @@ export function validateStructuredOutput(
   }
 
   // 1. Detect Prompt Injection override keys
-  detectPromptInjection(parsed);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new ValidationError("SCHEMA_PARSING_FAILED", "Structured output JSON must be an object");
+  }
+
+  detectPromptInjection(parsed as Record<string, unknown>);
 
   // 2. Validate against Zod schema
   const parsedResult = StructuredComposerOutputSchema.safeParse(parsed);

@@ -2,23 +2,23 @@ import type pg from "pg";
 import type { AirtableAccountStub } from "@mediaops/shared-contracts";
 import type { Logger } from "../lib/logger.js";
 
-export type ResolverSuccess = {
+export interface ResolverSuccess {
   outcome: "success";
   accounts: ResolvedAccount[];
-};
+}
 
-export type ResolvedAccount = {
+export interface ResolvedAccount {
   channel_account_id: string;
   platform: "Facebook";
   airtable_channel_account_record_id: string;
   external_account_id: string;
   display_name: string;
-};
+}
 
-export type ResolverFailure = {
+export interface ResolverFailure {
   outcome: "channel_account_missing" | "channel_account_inactive" | "channel_account_unresolved";
   reason: string;
-};
+}
 
 export type ResolverResult = ResolverSuccess | ResolverFailure;
 

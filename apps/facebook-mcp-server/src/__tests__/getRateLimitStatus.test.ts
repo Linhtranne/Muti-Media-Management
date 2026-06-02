@@ -11,6 +11,10 @@ class MockSecretStore implements SecretStore {
     }
     return "valid-token";
   }
+
+  async storeSecret(workspaceId: string, suffix: string, secretValue: string): Promise<string> {
+    return `env:MOCK_${suffix}`;
+  }
 }
 
 describe("getRateLimitStatusHandler", () => {

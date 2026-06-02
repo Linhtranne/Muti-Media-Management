@@ -1,4 +1,4 @@
-export type PromptContext = {
+export interface PromptContext {
   masterCopy: string;
   ctaUrl?: string | null;
   campaignObjective?: string | null;
@@ -7,13 +7,13 @@ export type PromptContext = {
   doTerms?: string[] | null;
   avoidTerms?: string[] | null;
   legalNotes?: string | null;
-};
+}
 
-export type PromptTemplate = {
+export interface PromptTemplate {
   version: string;
   systemPrompt: string;
   userPrompt(ctx: PromptContext): string;
-};
+}
 
 export const promptRegistry: Record<string, PromptTemplate> = {
   "fb_composer_v1.0.0": {
@@ -76,7 +76,7 @@ Generate your Chain of Thought first, then output the final JSON variant in the 
   }
 };
 
-export function getPromptTemplate(version: string = "fb_composer_v1.0.0"): PromptTemplate {
+export function getPromptTemplate(version = "fb_composer_v1.0.0"): PromptTemplate {
   const template = promptRegistry[version];
   if (!template) {
     throw new Error(`Prompt template version ${version} not found in registry`);

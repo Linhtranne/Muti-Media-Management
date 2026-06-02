@@ -19,6 +19,24 @@ import { createMcpValidateRabbitMqConsumer } from "./queue/mcpValidateRabbitmqCo
 import { McpPublishWorker } from "./workers/mcpPublishWorker.js";
 import { createMcpPublishRabbitMqConsumer } from "./queue/mcpPublishRabbitmqConsumer.js";
 import { McpPublishScheduler } from "./workers/mcpPublishScheduler.js";
+import { SlackSignatureVerifier } from "./services/slackSignatureVerifier.js";
+import { SlackCommandParser } from "./services/slackCommandParser.js";
+import { SlackCommandRepository } from "./ledger/slackCommandRepository.js";
+import { createSlackCommandsRouter } from "./routes/slackCommands.js";
+import { createFacebookAdminRouter } from "./routes/facebookAdmin.js";
+import { SlackPostApprovalWorker } from "./workers/slackPostApprovalWorker.js";
+import { createSlackCommandRabbitmqConsumer } from "./queue/slackCommandRabbitmqConsumer.js";
+import { CommentActionRepository } from "./ledger/commentActionRepository.js";
+import { SlackCommentActionWorker } from "./workers/slackCommentActionWorker.js";
+import { createSlackCommentActionRabbitmqConsumer } from "./queue/slackCommentActionRabbitmqConsumer.js";
+import { CommentRiskClassifier } from "./services/commentRiskClassifier.js";
+import { CommentSyncWorkerRepository } from "./ledger/commentSyncWorkerRepository.js";
+import { FacebookCommentSyncWorker } from "./workers/facebookCommentSyncWorker.js";
+import { createFacebookCommentSyncIngestConsumer } from "./queue/facebookCommentSyncIngestConsumer.js";
+import { createFacebookCommentSyncRequestConsumer } from "./queue/facebookCommentSyncRequestConsumer.js";
+import { CommentSyncSchedulerRepository } from "./ledger/commentSyncSchedulerRepository.js";
+import { CommentSyncScheduler } from "./scheduler/commentSyncScheduler.js";
+import { ChannelAccountAdminRepository } from "./ledger/channelAccountAdminRepository.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -49,10 +67,10 @@ export async function createServer() {
   const policyConsumer = await createPolicyRabbitMqConsumer(env.RABBITMQ_URL, policyWorker, logger);
 
   // MCP integration
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = process.env.NODE_ENV === "test" 
-    ? path.join(__dirname, "../../facebook-mcp-server/dist/index.js")
-    : path.join(__dirname, "../../../facebook-mcp-server/dist/index.js");
+    ? path.join(currentDir, "../../facebook-mcp-server/dist/index.js")
+    : path.join(currentDir, "../../../facebook-mcp-server/dist/index.js");
 
   const facebookMcpClient = new FacebookMcpClient(mcpServerPath);
   await facebookMcpClient.connect().catch(err => {
@@ -67,9 +85,58 @@ export async function createServer() {
 
   const mcpPublishScheduler = new McpPublishScheduler(database, logger, env.WORKSPACE_ID, queuePublisher);
 
+  // Slack integration
+  const slackVerifier = new SlackSignatureVerifier(env.SLACK_SIGNING_SECRET, logger);
+  const slackParser = new SlackCommandParser(env.SLACK_COMMAND_MAX_REASON_LENGTH);
+  const slackRepository = new SlackCommandRepository();
+  const slackWorker = new SlackPostApprovalWorker(database, slackRepository, airtableClient, logger, env.WORKSPACE_ID, env.AIRTABLE_FIELD_MAP.ai_review_notes);
+  const slackCommandConsumer = createSlackCommandRabbitmqConsumer(env.RABBITMQ_URL, slackWorker, logger, env.WORKSPACE_ID);
+
+  const commentActionRepository = new CommentActionRepository();
+  const slackCommentActionWorker = new SlackCommentActionWorker(database, commentActionRepository, facebookMcpClient, queuePublisher, logger, env.WORKSPACE_ID);
+  const slackCommentActionConsumer = createSlackCommentActionRabbitmqConsumer(env.RABBITMQ_URL, slackCommentActionWorker, logger, env.WORKSPACE_ID);
+
+  // US-007 Facebook Comments Sync
+  const channelAccountAdminRepo = new ChannelAccountAdminRepository();
+  const commentRiskClassifier = new CommentRiskClassifier();
+  const commentSyncWorkerRepo = new CommentSyncWorkerRepository();
+  const facebookCommentSyncWorker = new FacebookCommentSyncWorker(database.getPool(), commentSyncWorkerRepo, commentRiskClassifier, queuePublisher);
+  
+  const facebookCommentIngestConsumer = await createFacebookCommentSyncIngestConsumer(env.RABBITMQ_URL, facebookCommentSyncWorker, logger);
+  const facebookCommentSyncRequestConsumer = await createFacebookCommentSyncRequestConsumer(env.RABBITMQ_URL, facebookMcpClient, database.getPool(), channelAccountAdminRepo, queuePublisher, logger);
+
+  const commentSyncSchedulerRepo = new CommentSyncSchedulerRepository();
+  const commentSyncScheduler = new CommentSyncScheduler(database.getPool(), commentSyncSchedulerRepo, queuePublisher, logger);
+
   const app = express();
+  app.disable("x-powered-by");
+  
+  // Note: Slack commands router must be mounted before the global express.json() 
+  // since it uses express.raw() to verify the signature.
+  app.use("/api/v1", createSlackCommandsRouter({
+    verifier: slackVerifier,
+    parser: slackParser,
+    repository: slackRepository,
+    commentActionRepository,
+    publisher: queuePublisher,
+    database,
+    logger,
+    workspaceId: env.WORKSPACE_ID,
+    slackCommandsEnabled: env.SLACK_COMMANDS_ENABLED === "true"
+  }));
+
   app.use(express.json({ limit: "64kb" }));
   app.use("/api/v1", createAirtableWebhookRouter(ingestor, logger));
+
+  app.use("/api/v1/admin/facebook", createFacebookAdminRouter(
+    database,
+    facebookMcpClient,
+    airtableClient,
+    logger,
+    env.WORKSPACE_ID,
+    env.FACEBOOK_PAGE_CONFIG_ENABLED === "true",
+    env.FACEBOOK_REDIRECT_URI
+  ));
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
@@ -77,14 +144,16 @@ export async function createServer() {
 
   return { 
     app, env, logger, database, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
-    mcpPublishConsumer, mcpPublishScheduler
+    mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
+    facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler
   };
 }
 
 if (process.env.NODE_ENV !== "test") {
   const { 
     app, env, logger, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
-    mcpPublishConsumer, mcpPublishScheduler
+    mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
+    facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler
   } = await createServer();
 
   await consumer.start().catch((err) => {
@@ -107,16 +176,34 @@ if (process.env.NODE_ENV !== "test") {
     logger.error("Failed to start MCP Publish RabbitMQ consumer", { error: String(err) });
   });
 
+  await slackCommandConsumer.start().catch((err) => {
+    logger.error("Failed to start Slack Command RabbitMQ consumer", { error: String(err) });
+  });
+
+  await slackCommentActionConsumer.start().catch((err) => {
+    logger.error("Failed to start Slack Comment Action RabbitMQ consumer", { error: String(err) });
+  });
+
+  await facebookCommentIngestConsumer.start().catch((err) => {
+    logger.error("Failed to start Facebook Comment Ingest consumer", { error: String(err) });
+  });
+
+  await facebookCommentSyncRequestConsumer.start().catch((err) => {
+    logger.error("Failed to start Facebook Comment Sync Request consumer", { error: String(err) });
+  });
+
   // Start the scheduler loop
   let schedulerInterval: NodeJS.Timeout | null = null;
   if (env.US006_EXECUTION_ENABLED === 'true') {
     logger.info("Starting MCP Publish Scheduler...");
     schedulerInterval = setInterval(() => {
-      mcpPublishScheduler.runPollCycle().catch(err => {
+      void mcpPublishScheduler.runPollCycle().catch(err => {
         logger.error("Scheduler run failed", { error: String(err) });
       });
     }, 60000); // 1 minute
   }
+
+  commentSyncScheduler.start();
 
   const server = app.listen(env.PORT, () => {
     logger.info("Orchestrator listening", { port: env.PORT });
@@ -134,6 +221,11 @@ if (process.env.NODE_ENV !== "test") {
     await policyConsumer.stop();
     await mcpValidateConsumer.stop();
     await mcpPublishConsumer.stop();
+    await slackCommandConsumer.stop();
+    await slackCommentActionConsumer.stop();
+    await facebookCommentIngestConsumer.stop();
+    await facebookCommentSyncRequestConsumer.stop();
+    commentSyncScheduler.stop();
     if (schedulerInterval) {
       clearInterval(schedulerInterval);
     }
@@ -144,6 +236,10 @@ if (process.env.NODE_ENV !== "test") {
     process.exit(0);
   };
 
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
+  process.on("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
 }

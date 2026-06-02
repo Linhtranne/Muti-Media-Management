@@ -1,9 +1,9 @@
 import type { Database } from "../ledger/postgres.js";
 import type { AirtableClient } from "../airtable/airtableClient.js";
 import type { Logger } from "../lib/logger.js";
-import { NotionClient, NotionSsrfError, NotionFetchError } from "../services/notionClient.js";
+import { NotionClient, NotionSsrfError } from "../services/notionClient.js";
 import { getPromptTemplate } from "../ai/promptRegistry.js";
-import type { LlmAdapter } from "../ai/llmAdapter.js";
+import type { LlmAdapter, LlmGenerateOptions } from "../ai/llmAdapter.js";
 import { validateStructuredOutput, ValidationError } from "../ai/structuredValidator.js";
 import { AiWorkerRepository } from "../ledger/aiWorkerRepository.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -11,19 +11,19 @@ import { LlmTimeoutError, LlmRateLimitError } from "../ai/llmAdapter.js";
 import type { AiComposerQueueMessage } from "@mediaops/shared-contracts";
 import { redact } from "../lib/redact.js";
 
-export type AiWorkerResult = {
+export interface AiWorkerResult {
   success: boolean;
   status: string;
   variantId?: string;
   errorCode?: string;
   errorMessage?: string;
-};
+}
 
-export type AiQueueWorkerResult = {
+export interface AiQueueWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: string;
   errorCode?: string;
-};
+}
 
 export class AiComposerWorker {
   private readonly repository = new AiWorkerRepository();
@@ -37,7 +37,7 @@ export class AiComposerWorker {
     private readonly llmAdapter: LlmAdapter,
     private readonly logger: Logger,
     private readonly workspaceId: string,
-    private readonly promptVersion: string = "fb_composer_v1.0.0",
+    private readonly promptVersion = "fb_composer_v1.0.0",
     private readonly airtableFieldMap: {
       variant_draft: string;
       variant_hashtags: string;
@@ -48,12 +48,13 @@ export class AiComposerWorker {
     }
   ) {}
 
-  start(intervalMs: number = 5000): void {
+  start(intervalMs = 5000): void {
     if (this.isRunning) return;
     this.isRunning = true;
     this.logger.info("AI Composer background SMM worker started", { intervalMs });
 
-    const poll = async () => {
+    const poll = () => {
+      void (async () => {
       try {
         await this.pollAndProcess();
       } catch (err) {
@@ -62,6 +63,7 @@ export class AiComposerWorker {
       if (this.isRunning) {
         this.intervalId = setTimeout(poll, intervalMs);
       }
+      })();
     };
 
     this.intervalId = setTimeout(poll, intervalMs);
@@ -115,7 +117,7 @@ export class AiComposerWorker {
       return { success: false, status: "claim_failed", errorMessage: String(err) };
     }
 
-    const { success, alreadyCompleted, aiGenerationRunId, approvedVersion, airtableRecordId, existingOutput } = claim;
+    const { success, alreadyCompleted, aiGenerationRunId, approvedVersion, airtableRecordId } = claim;
 
     if (alreadyCompleted) {
       this.logger.info("AI generation already completed, fast-pass skip", { workflowRunId, aiGenerationRunId });
@@ -138,12 +140,14 @@ export class AiComposerWorker {
       await this.database.transaction(this.workspaceId, async (client) => {
         await this.repository.markFailed(
           client,
-          this.workspaceId,
-          workflowRunId,
-          aiGenerationRunId,
-          "AIRTABLE_CONTEXT_UNREACHABLE",
-          `Failed to reload Airtable post: ${String(redact(String(err)))}`,
-          "failed"
+          {
+            workspaceId: this.workspaceId,
+            workflowRunId,
+            aiGenerationRunId,
+            errorCode: "AIRTABLE_CONTEXT_UNREACHABLE",
+            errorMessage: `Failed to reload Airtable post: ${String(redact(String(err)))}`,
+            status: "failed"
+          }
         );
       });
       return { success: false, status: "airtable_reload_failed", errorCode: "AIRTABLE_CONTEXT_UNREACHABLE" };
@@ -160,12 +164,14 @@ export class AiComposerWorker {
       await this.database.transaction(this.workspaceId, async (client) => {
         await this.repository.markFailed(
           client,
-          this.workspaceId,
-          workflowRunId,
-          aiGenerationRunId,
-            "STALE_SOURCE_STATUS_CHANGED",
-          `Status changed to '${fields.status}' in Airtable`,
-          "failed"
+          {
+            workspaceId: this.workspaceId,
+            workflowRunId,
+            aiGenerationRunId,
+            errorCode: "STALE_SOURCE_STATUS_CHANGED",
+            errorMessage: `Status changed to '${fields.status}' in Airtable`,
+            status: "failed"
+          }
         );
       });
       return { success: false, status: "status_changed", errorCode: "STALE_SOURCE_STATUS_CHANGED" };
@@ -178,12 +184,14 @@ export class AiComposerWorker {
       await this.database.transaction(this.workspaceId, async (client) => {
         await this.repository.markFailed(
           client,
-          this.workspaceId,
-          workflowRunId,
-          aiGenerationRunId,
-          "AIRTABLE_CONTEXT_INVALID",
-          "Target channels does not contain Facebook",
-          "failed"
+          {
+            workspaceId: this.workspaceId,
+            workflowRunId,
+            aiGenerationRunId,
+            errorCode: "AIRTABLE_CONTEXT_INVALID",
+            errorMessage: "Target channels does not contain Facebook",
+            status: "failed"
+          }
         );
       });
       return { success: false, status: "channels_invalid", errorCode: "AIRTABLE_CONTEXT_INVALID" };
@@ -195,12 +203,14 @@ export class AiComposerWorker {
       await this.database.transaction(this.workspaceId, async (client) => {
         await this.repository.markFailed(
           client,
-          this.workspaceId,
-          workflowRunId,
-          aiGenerationRunId,
-          "AIRTABLE_CONTEXT_INVALID",
-          "Master copy is missing or empty",
-          "failed"
+          {
+            workspaceId: this.workspaceId,
+            workflowRunId,
+            aiGenerationRunId,
+            errorCode: "AIRTABLE_CONTEXT_INVALID",
+            errorMessage: "Master copy is missing or empty",
+            status: "failed"
+          }
         );
       });
       return { success: false, status: "master_copy_empty", errorCode: "AIRTABLE_CONTEXT_INVALID" };
@@ -210,7 +220,15 @@ export class AiComposerWorker {
     // 3. Load Notion Context (Optional & Hardened Allowlist)
     // ──────────────────────────────────────────────
     let notionBrief = null;
-    let notionContextRefs: any[] = [];
+    const notionContextRefs: Array<{
+      notion_brief_url: string;
+      load_status: "success" | "failed";
+      ai_ready: boolean;
+      fallback_source?: string;
+      error_code?: string;
+      error_message?: string;
+      error?: string;
+    }> = [];
 
     if (fields.campaign_id && fields.campaign_id.length > 0) {
       const campaignId = fields.campaign_id[0];
@@ -267,12 +285,14 @@ export class AiComposerWorker {
         await this.database.transaction(this.workspaceId, async (client) => {
           await this.repository.markFailed(
             client,
-            this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            "CONTEXT_UNREACHABLE",
-            `Notion campaign brief context loading failed completely: ${String(redact(String(campaignErr)))}`,
-            "needs_manual_review"
+            {
+              workspaceId: this.workspaceId,
+              workflowRunId,
+              aiGenerationRunId,
+              errorCode: "CONTEXT_UNREACHABLE",
+              errorMessage: `Notion campaign brief context loading failed completely: ${String(redact(String(campaignErr)))}`,
+              status: "needs_manual_review"
+            }
           );
         });
         return { success: false, status: "notion_context_failed", errorCode: "CONTEXT_UNREACHABLE" };
@@ -310,7 +330,7 @@ export class AiComposerWorker {
     // ──────────────────────────────────────────────
     let generatedText: string;
     try {
-      const scenario = (process.env.MOCK_LLM_SCENARIO || "happy") as any;
+      const scenario = (process.env.MOCK_LLM_SCENARIO || "happy") as LlmGenerateOptions["mockScenario"];
       generatedText = await this.llmAdapter.generateContent(systemPrompt, userPrompt, {
         timeoutMs: 30_000,
         mockScenario: scenario
@@ -331,12 +351,14 @@ export class AiComposerWorker {
       await this.database.transaction(this.workspaceId, async (client) => {
         await this.repository.markFailed(
           client,
-          this.workspaceId,
-          workflowRunId,
-          aiGenerationRunId,
-          errCode,
-          `LLM provider error: ${String(redact(String(err)))}`,
-          runStatus
+          {
+            workspaceId: this.workspaceId,
+            workflowRunId,
+            aiGenerationRunId,
+            errorCode: errCode,
+            errorMessage: `LLM provider error: ${String(redact(String(err)))}`,
+            status: runStatus
+          }
         );
       });
 
@@ -368,13 +390,15 @@ export class AiComposerWorker {
         await this.database.transaction(this.workspaceId, async (client) => {
           await this.repository.markFailed(
             client,
-            this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            err.errorCode,
-            err.message,
-            status,
-            outputSnapshot
+            {
+              workspaceId: this.workspaceId,
+              workflowRunId,
+              aiGenerationRunId,
+              errorCode: err.errorCode,
+              errorMessage: err.message,
+              status,
+              outputSnapshot
+            }
           );
         });
 
@@ -402,12 +426,14 @@ export class AiComposerWorker {
       await this.database.transaction(this.workspaceId, async (client) => {
         await this.repository.markFailed(
           client,
-          this.workspaceId,
-          workflowRunId,
-          aiGenerationRunId,
-          "SCHEMA_PARSING_FAILED",
-          `Unexpected validation error: ${String(redact(String(err)))}`,
-          "needs_manual_review"
+          {
+            workspaceId: this.workspaceId,
+            workflowRunId,
+            aiGenerationRunId,
+            errorCode: "SCHEMA_PARSING_FAILED",
+            errorMessage: `Unexpected validation error: ${String(redact(String(err)))}`,
+            status: "needs_manual_review"
+          }
         );
       });
       return { success: false, status: "validation_failed", errorCode: "SCHEMA_PARSING_FAILED" };
@@ -421,16 +447,18 @@ export class AiComposerWorker {
       variantId = await this.database.transaction(this.workspaceId, async (client) => {
         return this.repository.markCompleted(
           client,
-          this.workspaceId,
-          workflowRunId,
-          aiGenerationRunId,
-          airtableRecordId,
-          approvedVersion,
-          this.promptVersion,
-          validatedOutput,
-          correlationId,
-          fields.post_id || airtableRecordId,
-          false // sync_retry_needed initially false, will set to true if Airtable sync fails
+          {
+            workspaceId: this.workspaceId,
+            workflowRunId,
+            aiGenerationRunId,
+            airtableRecordId,
+            approvedVersion,
+            promptVersion: this.promptVersion,
+            output: validatedOutput,
+            correlationId,
+            postId: fields.post_id || airtableRecordId,
+            syncRetryNeeded: false
+          }
         );
       });
     } catch (err) {

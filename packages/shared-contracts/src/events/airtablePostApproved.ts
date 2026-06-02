@@ -22,7 +22,7 @@ export const AirtableApprovedWebhookSchema = z
   .strict()
   .superRefine((value, ctx) => {
     for (const field of forbiddenIngressFields) {
-      if (Object.prototype.hasOwnProperty.call(value, field)) {
+      if (Object.hasOwn(value, field)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Forbidden webhook field: ${field}`,
@@ -50,7 +50,7 @@ export const AirtableApprovedQueueMessageSchema = z
   .strict()
   .superRefine((value, ctx) => {
     for (const field of [...forbiddenIngressFields, "approved_version"]) {
-      if (Object.prototype.hasOwnProperty.call(value, field)) {
+      if (Object.hasOwn(value, field)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Forbidden queue field: ${field}`,
@@ -73,4 +73,3 @@ export function createWorkflowIdempotencyKey(input: {
 }): string {
   return `airtable.post.approved:${input.workspaceId}:${input.airtableRecordId}:${input.approvedVersion}`;
 }
-

@@ -15,60 +15,60 @@ export type PolicyWarningCode =
 
 export type PolicySeverity = "blocker" | "warning";
 
-export type PolicyCheck = {
+export interface PolicyCheck {
   rule: string;
   passed: boolean;
   severity?: PolicySeverity;
   code?: PolicyBlockerCode | PolicyWarningCode;
   detail?: string;
   metadata?: Record<string, unknown>;
-};
+}
 
-export type PolicyBlocker = {
+export interface PolicyBlocker {
   code: PolicyBlockerCode;
   detail: string;
-};
+}
 
-export type PolicyWarning = {
+export interface PolicyWarning {
   code: PolicyWarningCode;
   detail: string;
-};
+}
 
-export type PolicyVariantInput = {
+export interface PolicyVariantInput {
   approvalStatus: string;
   body: string;
   hashtags: string[];
   ctaUrl?: string | null;
   sourceCtaUrl?: string | null;
-};
+}
 
-export type PolicyChannelAccountInput = {
+export interface PolicyChannelAccountInput {
   status?: string | null;
-};
+}
 
-export type PolicyTokenReferenceInput = {
+export interface PolicyTokenReferenceInput {
   tokenStatus?: string | null;
   expiresAt?: string | null;
-};
+}
 
-export type PolicyWorkspaceConfigInput = {
+export interface PolicyWorkspaceConfigInput {
   autoPublishEnabled?: boolean | null;
   autoApproveEnabled?: boolean | null;
   utmWarnOnly?: boolean | null;
   forbiddenTerms?: string[] | null;
-};
+}
 
-export type PolicyEvaluationInput = {
+export interface PolicyEvaluationInput {
   variant: PolicyVariantInput;
   channelAccount: PolicyChannelAccountInput | null;
   tokenReference: PolicyTokenReferenceInput | null;
   workspaceConfig: PolicyWorkspaceConfigInput;
-};
+}
 
-export type PolicyEvaluation = {
+export interface PolicyEvaluation {
   allowed: boolean;
   blockers: PolicyBlocker[];
   warnings: PolicyWarning[];
   checks: PolicyCheck[];
-};
+}
 

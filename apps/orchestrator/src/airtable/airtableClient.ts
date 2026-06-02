@@ -37,7 +37,7 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const RESPONSE_TIMEOUT_MS = 20_000;
 const TOTAL_TIMEOUT_MS = CONNECT_TIMEOUT_MS + RESPONSE_TIMEOUT_MS;
 
-export type AirtableClient = {
+export interface AirtableClient {
   getPostRecord(recordId: string): Promise<AirtableReloadedRecord>;
   fetchCampaignRecord(campaignId: string): Promise<{ notion_brief_url?: string; campaign_objective?: string }>;
   updatePolicyNeedsReview?(
@@ -68,7 +68,14 @@ export type AirtableClient = {
     }
   ): Promise<void>;
   updateRecordStatus(workspaceId: string, recordId: string, status: string): Promise<void>;
-};
+  updatePostApprovalStatus?(
+    recordId: string,
+    status: string,
+    rejectionReason?: string | null,
+    reasonField?: string
+  ): Promise<void>;
+  updateRecord(tableName: string, recordId: string, fields: Record<string, unknown>): Promise<void>;
+}
 
 export function createAirtableClient(apiKey: string, baseId: string): AirtableClient {
   const baseUrl = `https://api.airtable.com/v0/${baseId}`;
@@ -77,7 +84,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
     async getPostRecord(recordId: string): Promise<AirtableReloadedRecord> {
       const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+      const timeout = setTimeout(() => { controller.abort(); }, TOTAL_TIMEOUT_MS);
 
       try {
         const response = await fetch(url, {
@@ -105,7 +112,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
         }
 
-        const body = await response.json();
+        const body = await response.json() as unknown;
         return AirtableReloadedRecordSchema.parse(body);
       } catch (error: unknown) {
         if (error instanceof AirtableRateLimitError
@@ -131,7 +138,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
     async fetchCampaignRecord(campaignId: string): Promise<{ notion_brief_url?: string; campaign_objective?: string }> {
       const url = `${baseUrl}/Campaigns/${encodeURIComponent(campaignId)}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+      const timeout = setTimeout(() => { controller.abort(); }, TOTAL_TIMEOUT_MS);
 
       try {
         const response = await fetch(url, {
@@ -159,14 +166,14 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
         }
 
-        const body = await response.json();
+        const body = await response.json() as { fields?: Record<string, unknown> };
         const fields = body.fields || {};
-        const notion_brief_url = fields["Notion Brief URL"] || fields["notion_brief_url"];
-        const campaign_objective = fields["objective"] || fields["campaign_objective"] || fields["Objective"];
+        const notionBriefUrl = fields["Notion Brief URL"] || fields.notion_brief_url;
+        const campaignObjective = fields.objective || fields.campaign_objective || fields.Objective;
 
         return {
-          notion_brief_url: typeof notion_brief_url === "string" ? notion_brief_url : undefined,
-          campaign_objective: typeof campaign_objective === "string" ? campaign_objective : undefined
+          notion_brief_url: typeof notionBriefUrl === "string" ? notionBriefUrl : undefined,
+          campaign_objective: typeof campaignObjective === "string" ? campaignObjective : undefined
         };
       } catch (error: unknown) {
         if (error instanceof AirtableRateLimitError
@@ -199,9 +206,9 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
     ): Promise<void> {
       const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+      const timeout = setTimeout(() => { controller.abort(); }, TOTAL_TIMEOUT_MS);
 
-      const updateFields: Record<string, any> = {
+      const updateFields: Record<string, unknown> = {
         status: "Needs Review",
         policy_status: fields.policy_status,
         policy_blockers: fields.policy_blockers,
@@ -276,9 +283,9 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
     ): Promise<void> {
       const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+      const timeout = setTimeout(() => { controller.abort(); }, TOTAL_TIMEOUT_MS);
 
-      const updateFields: Record<string, any> = {
+      const updateFields: Record<string, unknown> = {
         [mapping.variant_draft]: fields.variant_draft,
         [mapping.variant_hashtags]: fields.variant_hashtags,
         [mapping.ai_generation_status]: fields.ai_generation_status,
@@ -342,9 +349,9 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
     async updateRecordStatus(workspaceId: string, recordId: string, status: string): Promise<void> {
       const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+      const timeout = setTimeout(() => { controller.abort(); }, TOTAL_TIMEOUT_MS);
 
-      const updateFields: Record<string, any> = {
+      const updateFields: Record<string, unknown> = {
         Status: status
       };
 
@@ -356,6 +363,123 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
             "Content-Type": "application/json"
           },
           body: JSON.stringify({ fields: updateFields }),
+          signal: controller.signal
+        });
+
+        if (response.status === 429) {
+          throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
+        }
+
+        if (response.status === 502 || response.status === 503) {
+          throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
+        }
+
+        if (response.status === 404) {
+          throw new AirtableRecordNotFoundError(recordId);
+        }
+
+        if (!response.ok) {
+          throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
+        }
+      } catch (error: unknown) {
+        if (error instanceof AirtableRateLimitError
+          || error instanceof AirtableServiceError
+          || error instanceof AirtableRecordNotFoundError) {
+          throw error;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new AirtableNetworkError("Airtable API request timed out");
+        }
+
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          throw new AirtableNetworkError(`Airtable network error: ${String(redact(error.message))}`);
+        }
+
+        throw new AirtableNetworkError(`Airtable request failed: ${String(redact(String(error)))}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
+    async updatePostApprovalStatus(
+      recordId: string,
+      status: string,
+      rejectionReason?: string | null,
+      reasonField = "review_notes"
+    ): Promise<void> {
+      const url = `${baseUrl}/Posts/${encodeURIComponent(recordId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => { controller.abort(); }, TOTAL_TIMEOUT_MS);
+
+      const updateFields: Record<string, unknown> = {
+        Status: status
+      };
+
+      if (rejectionReason !== undefined) {
+        updateFields[reasonField] = rejectionReason;
+      }
+
+      try {
+        const response = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ fields: updateFields }),
+          signal: controller.signal
+        });
+
+        if (response.status === 429) {
+          throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
+        }
+
+        if (response.status === 502 || response.status === 503) {
+          throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
+        }
+
+        if (response.status === 404) {
+          throw new AirtableRecordNotFoundError(recordId);
+        }
+
+        if (!response.ok) {
+          throw new AirtableServiceError(`Airtable API error (HTTP ${response.status})`);
+        }
+      } catch (error: unknown) {
+        if (error instanceof AirtableRateLimitError
+          || error instanceof AirtableServiceError
+          || error instanceof AirtableRecordNotFoundError) {
+          throw error;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new AirtableNetworkError("Airtable API request timed out");
+        }
+
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          throw new AirtableNetworkError(`Airtable network error: ${String(redact(error.message))}`);
+        }
+
+        throw new AirtableNetworkError(`Airtable request failed: ${String(redact(String(error)))}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
+    async updateRecord(tableName: string, recordId: string, fields: Record<string, unknown>): Promise<void> {
+      const url = `${baseUrl}/${encodeURIComponent(tableName)}/${encodeURIComponent(recordId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => { controller.abort(); }, TOTAL_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ fields }),
           signal: controller.signal
         });
 

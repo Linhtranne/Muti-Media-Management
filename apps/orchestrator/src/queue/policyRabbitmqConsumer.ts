@@ -3,7 +3,7 @@ import { PolicyEvaluateRequestedEventSchema } from "@mediaops/shared-contracts";
 import type { Logger } from "../lib/logger.js";
 import type { PolicyWorker } from "../workers/policyWorker.js";
 
-export type PolicyQueueConsumerChannel = {
+export interface PolicyQueueConsumerChannel {
   assertExchange(exchange: string, type: string, options: { durable: boolean }): Promise<unknown>;
   assertQueue(queue: string, options: { durable: boolean }): Promise<unknown>;
   bindQueue(queue: string, exchange: string, routingKey: string): Promise<unknown>;
@@ -14,22 +14,34 @@ export type PolicyQueueConsumerChannel = {
   ack(msg: amqp.Message): void;
   nack(msg: amqp.Message, allUpTo?: boolean, requeue?: boolean): void;
   close(): Promise<void>;
-};
+}
 
-export type PolicyQueueConnection = {
+export interface PolicyQueueConnection {
   createConfirmChannel(): Promise<PolicyQueueConsumerChannel>;
   close(): Promise<void>;
-};
+}
 
-export type PolicyQueueConsumer = {
+export interface PolicyQueueConsumer {
   start(): Promise<void>;
   stop(): Promise<void>;
+}
+
+type SafeConsumeMessage = Omit<amqp.ConsumeMessage, "fields" | "properties"> & {
+  fields: {
+    exchange: string;
+    routingKey: string;
+  };
+  properties: {
+    messageId?: string;
+    correlationId?: string;
+  };
 };
 
 const exchange = "policy.workflows";
 const queue = "policy.evaluate.requested";
 const routingKey = "policy.evaluate.requested";
 const dlqQueue = "policy.evaluate.requested.dlq";
+const connectRabbitMq = amqp.connect as (url: string) => Promise<PolicyQueueConnection>;
 
 export async function handlePolicyQueueMessage(
   channel: PolicyQueueConsumerChannel,
@@ -43,14 +55,15 @@ export async function handlePolicyQueueMessage(
     return;
   }
 
-  const messageId = msg.properties.messageId || "unknown-msg-id";
-  const contentStr = msg.content.toString();
+  const safeMsg = msg as SafeConsumeMessage;
+  const messageId = safeMsg.properties.messageId ?? "unknown-msg-id";
+  const contentStr = safeMsg.content.toString();
 
   async function moveToDlq(errorCode: string, errorMessage: string): Promise<void> {
     const dlqPayload = {
       original_message_id: messageId,
-      correlation_id: msg.properties.correlationId,
-      routing_key: msg.fields.routingKey,
+      correlation_id: safeMsg.properties.correlationId,
+      routing_key: safeMsg.fields.routingKey,
       error_code: errorCode,
       error_message: errorMessage,
       moved_at: new Date().toISOString(),
@@ -62,8 +75,8 @@ export async function handlePolicyQueueMessage(
       contentType: "application/json",
       deliveryMode: 2,
       headers: {
-        x_original_exchange: msg.fields.exchange,
-        x_original_routing_key: msg.fields.routingKey,
+        x_original_exchange: safeMsg.fields.exchange,
+        x_original_routing_key: safeMsg.fields.routingKey,
         x_dlq_error_code: errorCode,
         x_dlq_error_message: errorMessage
       }
@@ -121,7 +134,7 @@ export async function createPolicyRabbitMqConsumer(
   return {
     async start(): Promise<void> {
       logger.info("Initializing Policy RabbitMQ consumer...");
-      connection = await amqp.connect(rabbitmqUrl) as unknown as PolicyQueueConnection;
+      connection = await connectRabbitMq(rabbitmqUrl);
       channel = await connection.createConfirmChannel();
 
       await channel.assertExchange(exchange, "topic", { durable: true });
@@ -142,12 +155,11 @@ export async function createPolicyRabbitMqConsumer(
       logger.info("Stopping Policy RabbitMQ consumer...");
 
       if (channel) {
-        await channel.close().catch((error) => logger.error("Error closing Policy RabbitMQ channel", { error: String(error) }));
+        await channel.close().catch((error) => { logger.error("Error closing Policy RabbitMQ channel", { error: String(error) }); });
       }
       if (connection) {
-        await connection.close().catch((error) => logger.error("Error closing Policy RabbitMQ connection", { error: String(error) }));
+        await connection.close().catch((error) => { logger.error("Error closing Policy RabbitMQ connection", { error: String(error) }); });
       }
     }
   };
 }
-

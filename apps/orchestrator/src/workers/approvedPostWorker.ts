@@ -1,6 +1,4 @@
 import {
-  AirtableApprovedQueueMessageSchema,
-  AirtableAccountStubSchema,
   type AirtableApprovedQueueMessage,
   type WebhookEventStatus,
   createAiIdempotencyKey
@@ -18,11 +16,11 @@ import { ChannelAccountResolver } from "../services/channelAccountResolver.js";
 import type { Logger } from "../lib/logger.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
 
-export type WorkerResult = {
+export interface WorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: WebhookEventStatus;
   approvedVersion?: number;
-};
+}
 
 export class ApprovedPostWorker {
   private readonly repository = new WorkerRepository();
@@ -34,7 +32,7 @@ export class ApprovedPostWorker {
     private readonly logger: Logger,
     private readonly workspaceId: string,
     private readonly queuePublisher?: Pick<QueuePublisher, "publishAiComposerRequest">,
-    private readonly promptVersion: string = "fb_composer_v1.0.0"
+    private readonly promptVersion = "fb_composer_v1.0.0"
   ) {
     this.resolver = new ChannelAccountResolver(this.logger);
   }

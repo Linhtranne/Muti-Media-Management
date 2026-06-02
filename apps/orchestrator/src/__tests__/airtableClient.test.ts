@@ -29,7 +29,7 @@ describe("AirtableClient", () => {
       fields: {
         status: "Approved",
         is_valid_for_approval: 1,
-        scheduled_at: "2026-06-01T12:00:00.000Z",
+        scheduled_at: "2030-06-01T12:00:00.000Z",
         master_copy: "Hello world copy",
         approved_at: "2026-05-27T08:00:00.000Z",
         target_channels: ["Facebook"],

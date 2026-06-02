@@ -1,15 +1,15 @@
 import { McpValidateWorkerRepository } from "../ledger/mcpValidateWorkerRepository.js";
-import { FacebookMcpClient } from "../mcp/facebookMcpClient.js";
+import { type FacebookMcpClient } from "../mcp/facebookMcpClient.js";
 import type { Database } from "../ledger/postgres.js";
 import type { Logger } from "../lib/logger.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
-import type { PublishFacebookRequestedEvent } from "@mediaops/shared-contracts";
+import type { PublishFacebookRequestedEvent, ValidatePostResult } from "@mediaops/shared-contracts";
 import { redact } from "../lib/redact.js";
 
-export type McpValidateWorkerResult = {
+export interface McpValidateWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: string;
-};
+}
 
 export class McpValidateWorker {
   private readonly repository = new McpValidateWorkerRepository();
@@ -47,19 +47,19 @@ export class McpValidateWorker {
         }
 
         // Call MCP client to validate
-        let validationResult;
+        let validationResult: ValidatePostResult;
         try {
           validationResult = await this.mcpClient.validatePost(context.input);
         } catch (error) {
           validationResult = {
             passed: false,
-            violations: [{ code: "INVALID_CREDENTIALS", detail: `MCP validation failed: ${String(redact(String(error)))}` }],
+            violations: [{ code: "PLATFORM_TOKEN_INVALID", detail: `MCP validation failed: ${String(redact(String(error)))}` }],
             warnings: [],
             checkedAt: new Date().toISOString()
           };
         }
 
-        return this.repository.persistValidation(client, this.workspaceId, message, context, validationResult as any);
+        return this.repository.persistValidation(client, this.workspaceId, message, context, validationResult);
       });
     } catch (error) {
       this.logger.error("MCP validate worker failed during transaction", {

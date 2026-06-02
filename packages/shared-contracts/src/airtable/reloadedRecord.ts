@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const AirtableChannelAccountStubSchema = z.object({
+export const AirtableChannelAccountStubSchema = z.object({
   id: z.string().min(1),
   fields: z.object({
     platform: z.string().min(1),

@@ -21,14 +21,14 @@ describe("US-003 production security gate", () => {
 
   it("rejects service-role or RLS-bypass database credentials for worker runtime", () => {
     assert.throws(
-      () => assertRlsGovernedConnectionString("postgres://service_role:secret@localhost:5432/mediaops"),
+      () => { assertRlsGovernedConnectionString("postgres://service_role:secret@localhost:5432/mediaops"); },
       /RLS-bypass credential/
     );
     assert.throws(
-      () => assertRlsGovernedConnectionString("postgres://app:bypassrls-token@localhost:5432/mediaops"),
+      () => { assertRlsGovernedConnectionString("postgres://app:bypassrls-token@localhost:5432/mediaops"); },
       /RLS-bypass credential/
     );
-    assert.doesNotThrow(() => assertRlsGovernedConnectionString("postgres://mediaops_worker:worker_password@localhost:5432/mediaops"));
+    assert.doesNotThrow(() => { assertRlsGovernedConnectionString("postgres://mediaops_worker:worker_password@localhost:5432/mediaops"); });
   });
 
   it("redacts provider credentials from serialized provider errors", async () => {

@@ -6,15 +6,39 @@ import {
   createAiIdempotencyKey,
   type StructuredComposerOutput
 } from "@mediaops/shared-contracts";
+import { AuditLogRepository } from "./auditLogRepository.js";
 
-export type ClaimResult = {
+export interface ClaimResult {
   success: boolean;
   alreadyCompleted: boolean;
   aiGenerationRunId?: string;
   approvedVersion?: number;
   airtableRecordId?: string;
   existingOutput?: StructuredComposerOutput;
-};
+}
+
+export interface MarkAiCompletedInput {
+  workspaceId: string;
+  workflowRunId: string;
+  aiGenerationRunId: string;
+  airtableRecordId: string;
+  approvedVersion: number;
+  promptVersion: string;
+  output: StructuredComposerOutput;
+  correlationId: string;
+  postId: string;
+  syncRetryNeeded?: boolean;
+}
+
+export interface MarkAiFailedInput {
+  workspaceId: string;
+  workflowRunId: string;
+  aiGenerationRunId: string;
+  errorCode: AiErrorCode;
+  errorMessage: string;
+  status: AiGenerationStatus;
+  outputSnapshot?: { rawOutputHash: string; sanitizedFailure: true; errorCode: AiErrorCode };
+}
 
 export class AiWorkerRepository {
   /**
@@ -53,7 +77,7 @@ export class AiWorkerRepository {
     // If workflow has already progressed past AI generation
     if (wf.status === "ai_generation_completed") {
       // Find the existing completed run
-      const existingRun = await client.query<{ id: string; output_snapshot: any }>(
+      const existingRun = await client.query<{ id: string; output_snapshot: StructuredComposerOutput }>(
         `SELECT id, output_snapshot 
          FROM ai_generation_runs 
          WHERE workflow_run_id = $1 AND workspace_id = $2 AND status = 'completed'
@@ -79,7 +103,7 @@ export class AiWorkerRepository {
     });
 
     // 4. Check for existing run by idempotency key
-    const runResult = await client.query<{ id: string; status: string; output_snapshot: any }>(
+    const runResult = await client.query<{ id: string; status: string; output_snapshot: StructuredComposerOutput }>(
       `SELECT id, status, output_snapshot 
        FROM ai_generation_runs 
        WHERE idempotency_key = $1 AND workspace_id = $2
@@ -153,11 +177,15 @@ export class AiWorkerRepository {
     );
 
     // 6. Audit log
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-       VALUES ($1, $2, 'system', 'ai_composer', 'ai_run_claimed', 'workflow_run', $3)`,
-      [randomUUID(), workspaceId, workflowRunId]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'ai_run_claimed',
+      entityType: 'workflow_run',
+      entityId: workflowRunId,
+      actorType: 'system',
+      actorId: 'ai_composer'
+    });
 
     return {
       success: true,
@@ -174,18 +202,10 @@ export class AiWorkerRepository {
    */
   async markCompleted(
     client: pg.PoolClient,
-    workspaceId: string,
-    workflowRunId: string,
-    aiGenerationRunId: string,
-    airtableRecordId: string,
-    approvedVersion: number,
-    promptVersion: string,
-    output: StructuredComposerOutput,
-    correlationId: string,
-    postId: string,
-    syncRetryNeeded: boolean = false
+    input: MarkAiCompletedInput
   ): Promise<string> {
     const variantId = randomUUID();
+    const syncRetryNeeded = input.syncRetryNeeded ?? false;
 
     // 1. Insert/upsert variant (Facebook unique variant per workflow)
     await client.query(
@@ -203,14 +223,14 @@ export class AiWorkerRepository {
          created_at = NOW()`,
       [
         variantId,
-        workspaceId,
-        aiGenerationRunId,
-        workflowRunId,
-        airtableRecordId,
-        postId,
-        output.body,
-        JSON.stringify(output.hashtags),
-        output.cta_url || null,
+        input.workspaceId,
+        input.aiGenerationRunId,
+        input.workflowRunId,
+        input.airtableRecordId,
+        input.postId,
+        input.output.body,
+        JSON.stringify(input.output.hashtags),
+        input.output.cta_url || null,
         syncRetryNeeded
       ]
     );
@@ -220,7 +240,7 @@ export class AiWorkerRepository {
       `UPDATE ai_generation_runs 
        SET status = 'completed', output_snapshot = $3::jsonb, completed_at = NOW()
        WHERE id = $1 AND workspace_id = $2`,
-      [aiGenerationRunId, workspaceId, JSON.stringify(output)]
+      [input.aiGenerationRunId, input.workspaceId, JSON.stringify(input.output)]
     );
 
     // 3. Transition parent workflow status
@@ -228,15 +248,15 @@ export class AiWorkerRepository {
       `UPDATE workflow_runs 
        SET status = 'ai_generation_completed', updated_at = NOW() 
        WHERE id = $1 AND workspace_id = $2`,
-      [workflowRunId, workspaceId]
+      [input.workflowRunId, input.workspaceId]
     );
 
     // 4. Create Transactional Outbox Event
     const eventId = randomUUID();
     const idempotencyKey = createAiIdempotencyKey({
-      workspaceId,
-      workflowRunId,
-      promptVersion
+      workspaceId: input.workspaceId,
+      workflowRunId: input.workflowRunId,
+      promptVersion: input.promptVersion
     });
 
     await client.query(
@@ -249,25 +269,29 @@ export class AiWorkerRepository {
       [
         randomUUID(),
         eventId,
-        workspaceId,
-        correlationId,
-        workflowRunId,
-        aiGenerationRunId,
+        input.workspaceId,
+        input.correlationId,
+        input.workflowRunId,
+        input.aiGenerationRunId,
         variantId,
-        airtableRecordId,
-        promptVersion,
-        approvedVersion,
+        input.airtableRecordId,
+        input.promptVersion,
+        input.approvedVersion,
         idempotencyKey,
         JSON.stringify({ sync_retry_needed: syncRetryNeeded })
       ]
     );
 
     // 5. Audit log
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-       VALUES ($1, $2, 'system', 'ai_composer', 'ai_run_completed', 'ai_generation_run', $3)`,
-      [randomUUID(), workspaceId, aiGenerationRunId]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId: input.workspaceId,
+      eventType: 'ai_run_completed',
+      entityType: 'ai_generation_run',
+      entityId: input.aiGenerationRunId,
+      actorType: 'system',
+      actorId: 'ai_composer'
+    });
 
     return variantId;
   }
@@ -277,37 +301,43 @@ export class AiWorkerRepository {
    */
   async markFailed(
     client: pg.PoolClient,
-    workspaceId: string,
-    workflowRunId: string,
-    aiGenerationRunId: string,
-    errorCode: AiErrorCode,
-    errorMessage: string,
-    status: AiGenerationStatus,
-    outputSnapshot?: { rawOutputHash: string; sanitizedFailure: true; errorCode: AiErrorCode }
+    input: MarkAiFailedInput
   ): Promise<void> {
     // 1. Transition ai_generation_runs
     await client.query(
       `UPDATE ai_generation_runs 
        SET status = $3, error_code = $4, error_message = $5, output_snapshot = COALESCE($6::jsonb, output_snapshot), completed_at = NOW()
        WHERE id = $1 AND workspace_id = $2`,
-      [aiGenerationRunId, workspaceId, status, errorCode, errorMessage, outputSnapshot ? JSON.stringify(outputSnapshot) : null]
+      [
+        input.aiGenerationRunId,
+        input.workspaceId,
+        input.status,
+        input.errorCode,
+        input.errorMessage,
+        input.outputSnapshot ? JSON.stringify(input.outputSnapshot) : null
+      ]
     );
 
     // 2. Transition parent workflow status
-    const parentStatus = status === "retryable_failed" ? "pending_ai_generation" : "ai_generation_failed";
+    const parentStatus = input.status === "retryable_failed" ? "pending_ai_generation" : "ai_generation_failed";
     await client.query(
       `UPDATE workflow_runs 
        SET status = $3, updated_at = NOW() 
        WHERE id = $1 AND workspace_id = $2`,
-      [workflowRunId, workspaceId, parentStatus]
+      [input.workflowRunId, input.workspaceId, parentStatus]
     );
 
     // 3. Audit log
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'ai_composer', 'ai_run_failed', 'ai_generation_run', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, aiGenerationRunId, JSON.stringify({ error_code: errorCode, error_message: errorMessage, classified_status: status })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId: input.workspaceId,
+      eventType: 'ai_run_failed',
+      entityType: 'ai_generation_run',
+      entityId: input.aiGenerationRunId,
+      actorType: 'system',
+      actorId: 'ai_composer',
+      metadata: { error_code: input.errorCode, error_message: input.errorMessage, classified_status: input.status }
+    });
   }
 
   /**
@@ -326,11 +356,16 @@ export class AiWorkerRepository {
       [variantId, workspaceId, syncRetryNeeded]
     );
 
-    await client.query(
-      `INSERT INTO audit_logs (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'system', 'ai_composer', 'airtable_sync_status_updated', 'content_variant', $3, $4::jsonb)`,
-      [randomUUID(), workspaceId, variantId, JSON.stringify({ sync_retry_needed: syncRetryNeeded })]
-    );
+    const auditRepo = new AuditLogRepository();
+    await auditRepo.insertAuditLog(client, {
+      workspaceId,
+      eventType: 'airtable_sync_status_updated',
+      entityType: 'content_variant',
+      entityId: variantId,
+      actorType: 'system',
+      actorId: 'ai_composer',
+      metadata: { sync_retry_needed: syncRetryNeeded }
+    });
   }
 
   /**
@@ -339,8 +374,8 @@ export class AiWorkerRepository {
   async getPendingSyncVariants(
     client: pg.PoolClient,
     workspaceId: string
-  ): Promise<Array<{ id: string; airtable_record_id: string; body: string; hashtags: any; cta_url: string | null }>> {
-    const res = await client.query<{ id: string; airtable_record_id: string; body: string; hashtags: any; cta_url: string | null }>(
+  ): Promise<{ id: string; airtable_record_id: string; body: string; hashtags: string[]; cta_url: string | null }[]> {
+    const res = await client.query<{ id: string; airtable_record_id: string; body: string; hashtags: string[]; cta_url: string | null }>(
       `SELECT id, airtable_record_id, body, hashtags, cta_url 
        FROM content_variants 
        WHERE workspace_id = $1 AND sync_retry_needed = true`,
