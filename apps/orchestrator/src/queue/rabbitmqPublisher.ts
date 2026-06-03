@@ -8,8 +8,11 @@ import type {
   SlackCommandActionEvent,
   SlackCommentActionEvent,
   CommentSyncRequestedEvent,
-  CommentIngestEvent
+  CommentIngestEvent,
+  CanonicalEventEnvelope
 } from "@mediaops/shared-contracts";
+import { assertNoForbiddenFields } from "@mediaops/shared-contracts";
+import { CANONICAL_TOPIC_EXCHANGE } from "./topologyConfig.js";
 
 export interface QueuePublisher {
   publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void>;
@@ -22,6 +25,8 @@ export interface QueuePublisher {
   publishSlackCommentAction(message: SlackCommentActionEvent, messageId: string): Promise<void>;
   publishCommentSyncRequest(message: CommentSyncRequestedEvent, messageId: string): Promise<void>;
   publishCommentIngest(message: CommentIngestEvent, messageId: string): Promise<void>;
+  /** US-014: Publish a canonical event to the mediaops.events.topic exchange */
+  publishCanonicalEvent(envelope: CanonicalEventEnvelope, routingKey: string): Promise<void>;
 }
 
 export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<QueuePublisher> {
@@ -66,6 +71,9 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
   await channel.bindQueue(slackCommentActionQueue, slackExchange, slackCommentActionRoutingKey);
 
   await channel.assertExchange("comments.workflows", "topic", { durable: true });
+
+  // US-014: Assert canonical topic exchange (additive — does not break legacy)
+  await channel.assertExchange(CANONICAL_TOPIC_EXCHANGE, "topic", { durable: true });
 
   return {
     async publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void> {
@@ -245,6 +253,29 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+    },
+
+    // ── US-014: Canonical Event Publisher ───────────────────────────────────
+    async publishCanonicalEvent(envelope: CanonicalEventEnvelope, routingKey: string): Promise<void> {
+      // Security guard: reject any message containing forbidden fields
+      assertNoForbiddenFields(envelope, "canonical_envelope");
+      assertNoForbiddenFields(envelope.payload, "canonical_envelope.payload");
+
+      const body = Buffer.from(JSON.stringify(envelope));
+      const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, routingKey, body, {
+        contentType: "application/json",
+        deliveryMode: 2,
+        messageId: envelope.event_id,
+        correlationId: envelope.correlation_id,
+        type: envelope.event_type,
         timestamp: Math.floor(Date.now() / 1000)
       });
 

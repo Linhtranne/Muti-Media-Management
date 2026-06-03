@@ -15,10 +15,15 @@ const testFiles = [
   "packages/shared-contracts/dist/__tests__/airtableContracts.test.js",
   "packages/shared-contracts/dist/__tests__/policyContracts.test.js",
   "packages/shared-contracts/dist/__tests__/mcpContracts.test.js",
+  "packages/shared-contracts/dist/__tests__/facebookCommentContracts.test.js",
+  "packages/shared-contracts/dist/__tests__/composer.test.js",
+  "packages/shared-contracts/dist/__tests__/envelope.test.js",
   "packages/policy-engine/dist/__tests__/policyEngine.test.js",
   "apps/facebook-mcp-server/dist/__tests__/secretStore.test.js",
+  "apps/facebook-mcp-server/dist/__tests__/databaseSecretStore.test.js",
   "apps/facebook-mcp-server/dist/__tests__/validatePost.test.js",
   "apps/facebook-mcp-server/dist/__tests__/getRateLimitStatus.test.js",
+  "apps/facebook-mcp-server/dist/__tests__/syncComments.test.js",
   "apps/orchestrator/dist/__tests__/redact.test.js",
   "apps/orchestrator/dist/__tests__/auditLog.test.js",
   "apps/orchestrator/dist/__tests__/airtableClient.test.js",
@@ -26,7 +31,10 @@ const testFiles = [
   "apps/orchestrator/dist/__tests__/approvedPostWorker.test.js",
   "apps/orchestrator/dist/__tests__/notionClient.test.js",
   "apps/orchestrator/dist/__tests__/llmAdapter.test.js",
+  "apps/orchestrator/dist/__tests__/promptRegistry.test.js",
   "apps/orchestrator/dist/__tests__/structuredValidator.test.js",
+  "apps/orchestrator/dist/__tests__/commentRiskClassifier.test.js",
+  "apps/orchestrator/dist/__tests__/facebookCommentSyncWorker.test.js",
   "apps/orchestrator/dist/__tests__/aiComposerWorker.test.js",
   "apps/orchestrator/dist/__tests__/aiComposerRabbitmqConsumer.test.js",
   "apps/orchestrator/dist/__tests__/policyRabbitmqConsumer.test.js",
@@ -46,7 +54,12 @@ const testFiles = [
   "apps/orchestrator/dist/workers/__tests__/slackCommentActionWorker.test.js",
   "apps/orchestrator/dist/queue/__tests__/slackCommentActionRabbitmqConsumer.test.js",
   "packages/shared-contracts/dist/__tests__/mcp/facebookAuth.test.js",
-  "apps/orchestrator/dist/__tests__/facebookAdminRoute.test.js"
+  "apps/orchestrator/dist/__tests__/facebookAdminRoute.test.js",
+  "packages/shared-contracts/dist/__tests__/reportsContracts.test.js",
+  "apps/orchestrator/dist/__tests__/reportRepository.test.js",
+  "apps/orchestrator/dist/__tests__/reportsRoute.test.js",
+  // US-014 topology tests
+  "apps/orchestrator/dist/queue/__tests__/topologyConfig.test.js"
 ];
 
 const absoluteFiles = testFiles.map((f) => path.resolve(__dirname, f));
