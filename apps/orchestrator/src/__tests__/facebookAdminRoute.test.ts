@@ -21,6 +21,13 @@ describe("FacebookAdminRoutes", () => {
             }
             return { rows: [] };
           }
+          if (sql.includes("UPDATE facebook_oauth_sessions")) {
+            // Mock consuming session
+            return { rows: [{ user_token_ref: "env:MOCK_USER_TOKEN" }] };
+          }
+          if (sql.includes("INSERT INTO facebook_oauth_sessions")) {
+            return { rows: [] };
+          }
           return { rows: [{ id: "mock_account_123" }] };
         }
       } as any;

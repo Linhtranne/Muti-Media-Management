@@ -191,6 +191,56 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     prefetch: 5,
     workerBinding: "SlackAlertWorker (shared)",
     ownerUs: "shared"
+  },
+
+  // ─── US-015: Direct Message Inbox ───────────────────────────────────────
+  {
+    exchange: "mediaops.events.topic",
+    exchangeType: "topic",
+    queue: "dm.facebook.ingest",
+    routingKey: "dm.facebook.ingest",
+    dlq: "dm.facebook.ingest.dlq",
+    retryTtlMs: [1000, 2000, 4000, 8000],
+    maxRetries: 5,
+    prefetch: 5,
+    workerBinding: "DirectMessageIngestWorker",
+    ownerUs: "US-015"
+  },
+  {
+    exchange: "mediaops.events.topic",
+    exchangeType: "topic",
+    queue: "dm.instagram.ingest",
+    routingKey: "dm.instagram.ingest",
+    dlq: "dm.instagram.ingest.dlq",
+    retryTtlMs: [1000, 2000, 4000, 8000],
+    maxRetries: 5,
+    prefetch: 5,
+    workerBinding: "Stub",
+    ownerUs: "US-015"
+  },
+  {
+    exchange: "mediaops.events.topic",
+    exchangeType: "topic",
+    queue: "dm.zalo.ingest",
+    routingKey: "dm.zalo.ingest",
+    dlq: "dm.zalo.ingest.dlq",
+    retryTtlMs: [1000, 2000, 4000, 8000],
+    maxRetries: 5,
+    prefetch: 5,
+    workerBinding: "Stub",
+    ownerUs: "US-015"
+  },
+  {
+    exchange: "mediaops.events.topic",
+    exchangeType: "topic",
+    queue: "dm.reply.requested",
+    routingKey: "dm.reply.requested",
+    dlq: "dm.reply.requested.dlq",
+    retryTtlMs: [1000, 2000, 4000, 8000],
+    maxRetries: 5,
+    prefetch: 1,
+    workerBinding: "DirectMessageReplyWorker",
+    ownerUs: "US-015"
   }
 ];
 

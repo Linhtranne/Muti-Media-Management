@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS slack_comment_alerts (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   interaction_id  UUID NOT NULL REFERENCES interactions(id) ON DELETE RESTRICT,
   workspace_id    TEXT NOT NULL,
-  channel_id      TEXT NOT NULL,
+  channel_id      TEXT,
   channel_type    TEXT NOT NULL,   -- 'crisis', 'inbox'
   alert_type      TEXT NOT NULL,   -- 'comment_risk', 'comment_normal'
   message_ts      TEXT,            -- Slack message timestamp (for threading later)

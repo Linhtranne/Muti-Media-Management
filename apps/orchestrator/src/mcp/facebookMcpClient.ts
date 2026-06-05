@@ -15,7 +15,13 @@ import {
   ReplyCommentResultSchema,
   type SyncCommentsInput,
   type SyncCommentsResult,
-  SyncCommentsResultSchema
+  SyncCommentsResultSchema,
+  type GetDirectMessageInput,
+  type GetDirectMessageResult,
+  GetDirectMessageResultSchema,
+  type SendDirectMessageInput,
+  type SendDirectMessageResult,
+  SendDirectMessageResultSchema
 } from "@mediaops/shared-contracts";
 
 type McpTextContent = {
@@ -150,5 +156,31 @@ export class FacebookMcpClient {
     const textContent = extractToolText(response as McpToolResponse);
 
     return SyncCommentsResultSchema.parse(JSON.parse(textContent));
+  }
+
+  async getDirectMessage(input: GetDirectMessageInput): Promise<GetDirectMessageResult> {
+    if (!this.client) throw new Error("MCP Client not connected");
+
+    const response = await this.client.callTool({
+      name: "get_direct_message",
+      arguments: input
+    });
+
+    const textContent = extractToolText(response as McpToolResponse);
+
+    return GetDirectMessageResultSchema.parse(JSON.parse(textContent));
+  }
+
+  async sendDirectMessage(input: SendDirectMessageInput): Promise<SendDirectMessageResult> {
+    if (!this.client) throw new Error("MCP Client not connected");
+
+    const response = await this.client.callTool({
+      name: "send_direct_message",
+      arguments: input
+    });
+
+    const textContent = extractToolText(response as McpToolResponse);
+
+    return SendDirectMessageResultSchema.parse(JSON.parse(textContent));
   }
 }

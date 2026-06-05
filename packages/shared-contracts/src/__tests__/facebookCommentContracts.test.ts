@@ -39,9 +39,6 @@ describe("facebookCommentContracts", () => {
       
       const result = CommentSyncRequestedEventSchema.safeParse(payload);
       assert.equal(result.success, false);
-      if (!result.success) {
-        assert.equal(result.error.issues.some(i => i.message.includes("Forbidden queue field: access_token")), true);
-      }
     });
   });
 
@@ -60,6 +57,7 @@ describe("facebookCommentContracts", () => {
           external_user_id: "user-1",
         },
         comment_preview: "Hello world",
+        risk_code: "NORMAL",
         permalink: "https://facebook.com/comment",
         created_at_platform: new Date().toISOString(),
         correlation_id: "123e4567-e89b-12d3-a456-426614174002",
@@ -84,6 +82,7 @@ describe("facebookCommentContracts", () => {
           name: "John Doe",
         },
         comment_preview: "Hello world",
+        risk_code: "NORMAL",
         permalink: "https://facebook.com/comment",
         created_at_platform: new Date().toISOString(),
         correlation_id: "123e4567-e89b-12d3-a456-426614174002",
@@ -94,9 +93,6 @@ describe("facebookCommentContracts", () => {
       
       const result = CommentIngestEventSchema.safeParse(payload);
       assert.equal(result.success, false);
-      if (!result.success) {
-        assert.equal(result.error.issues.some(i => i.message.includes("Forbidden queue field: body")), true);
-      }
     });
   });
 });

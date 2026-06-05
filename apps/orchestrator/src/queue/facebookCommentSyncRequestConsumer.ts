@@ -1,11 +1,12 @@
 import amqp from "amqplib";
-import { CommentSyncRequestedEventSchema, type CommentIngestEvent } from "@mediaops/shared-contracts";
+import { CommentSyncRequestedEventSchema, type CommentIngestEvent, type CommentSyncRequestedEvent } from "@mediaops/shared-contracts";
 import type { Logger } from "../lib/logger.js";
 import type { FacebookMcpClient } from "../mcp/facebookMcpClient.js";
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import type { ChannelAccountAdminRepository } from "../ledger/channelAccountAdminRepository.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
+import type { CommentRiskClassifier } from "../services/commentRiskClassifier.js";
 
 export interface SyncRequestQueueConsumerChannel {
   assertExchange(exchange: string, type: string, options: { durable: boolean }): Promise<unknown>;
@@ -60,6 +61,7 @@ export interface SyncRequestConsumerDependencies {
   dbPool: pg.Pool;
   channelAccountRepo: ChannelAccountAdminRepository;
   publisher: QueuePublisher;
+  riskClassifier: CommentRiskClassifier;
   logger: Logger;
 }
 
@@ -110,8 +112,23 @@ async function getSecretRef(deps: SyncRequestConsumerDependencies, workspaceId: 
   }
 }
 
-async function publishIngestEvents(deps: SyncRequestConsumerDependencies, event: any, comments: any[]) {
+interface McpSyncedComment {
+  externalId: string;
+  externalPostId?: string;
+  authorName: string;
+  externalUserId?: string;
+  body: string;
+  permalink: string;
+  createdAtPlatform: string;
+}
+
+async function publishIngestEvents(
+  deps: SyncRequestConsumerDependencies,
+  event: CommentSyncRequestedEvent,
+  comments: McpSyncedComment[]
+) {
   for (const comment of comments) {
+    const riskCode = deps.riskClassifier.classify(comment.body);
     const ingestEvent: CommentIngestEvent = {
       event_id: randomUUID(),
       event_type: "comments.facebook.ingest",
@@ -125,6 +142,7 @@ async function publishIngestEvents(deps: SyncRequestConsumerDependencies, event:
         external_user_id: comment.externalUserId
       },
       comment_preview: comment.body.substring(0, 80),
+      risk_code: riskCode,
       permalink: comment.permalink,
       created_at_platform: comment.createdAtPlatform,
       correlation_id: event.correlation_id,
@@ -239,6 +257,7 @@ export async function createFacebookCommentSyncRequestConsumer(
   dbPool: pg.Pool,
   channelAccountRepo: ChannelAccountAdminRepository,
   publisher: QueuePublisher,
+  riskClassifier: CommentRiskClassifier,
   logger: Logger
 ): Promise<SyncRequestQueueConsumer> {
   let connection: SyncRequestQueueConnection | null = null;
@@ -272,6 +291,7 @@ export async function createFacebookCommentSyncRequestConsumer(
           dbPool,
           channelAccountRepo,
           publisher,
+          riskClassifier,
           logger
         };
         await handleSyncRequestQueueMessage(deps, msg, () => isStopping);

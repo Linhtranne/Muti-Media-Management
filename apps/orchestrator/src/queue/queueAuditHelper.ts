@@ -35,7 +35,7 @@ export interface QueueAuditInput {
  * Audit: message published to queue (producer side).
  */
 export async function auditQueuePublished(
-  client: pg.PoolClient,
+  client: pg.PoolClient | pg.Pool,
   input: QueueAuditInput,
   logger: Logger
 ): Promise<void> {
@@ -67,7 +67,7 @@ export async function auditQueuePublished(
  * Audit: message consumed successfully by worker.
  */
 export async function auditQueueConsumed(
-  client: pg.PoolClient,
+  client: pg.PoolClient | pg.Pool,
   input: QueueAuditInput,
   logger: Logger
 ): Promise<void> {
@@ -99,7 +99,7 @@ export async function auditQueueConsumed(
  * Audit: message published to retry queue after transient error.
  */
 export async function auditQueueRetried(
-  client: pg.PoolClient,
+  client: pg.PoolClient | pg.Pool,
   input: QueueAuditInput,
   logger: Logger
 ): Promise<void> {
@@ -135,7 +135,7 @@ export async function auditQueueRetried(
  * Audit: message moved to DLQ after permanent failure or exhausted retries.
  */
 export async function auditQueueDlq(
-  client: pg.PoolClient,
+  client: pg.PoolClient | pg.Pool,
   input: QueueAuditInput,
   logger: Logger
 ): Promise<void> {

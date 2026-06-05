@@ -6,6 +6,12 @@ export interface SecretStore {
 export class EnvSecretStore implements SecretStore {
   private readonly inMemoryStore = new Map<string, string>();
 
+  constructor() {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("FATAL: EnvSecretStore (in-memory) cannot be used in production. Please configure DatabaseSecretStore.");
+    }
+  }
+
   async resolveSecret(secretRef: string): Promise<string> {
     await Promise.resolve();
 

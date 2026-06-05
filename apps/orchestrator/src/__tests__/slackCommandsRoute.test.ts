@@ -30,7 +30,11 @@ describe("SlackCommandsRoute", () => {
       updateEventStatus: mock.fn(),
       insertAuditLog: mock.fn(),
     };
-    publisher = { publishSlackCommandAction: mock.fn(), publishSlackCommentAction: mock.fn() };
+    publisher = {
+      publishSlackCommandAction: mock.fn(),
+      publishSlackCommentAction: mock.fn(),
+      publishDirectMessageReplyRequested: mock.fn()
+    };
     logger = { info: mock.fn(), warn: mock.fn(), error: mock.fn() };
     
     database = {
@@ -40,11 +44,20 @@ describe("SlackCommandsRoute", () => {
       })
     };
 
+    const directMessageRepository = {
+      getWorkspaceMemberBySlackUser: mock.fn(),
+      getConversationById: mock.fn(),
+      createReplyJobIdempotently: mock.fn(),
+      insertAuditLog: mock.fn(),
+      markReplyJobFailed: mock.fn()
+    };
+
     const router = createSlackCommandsRouter({
       verifier,
       parser,
       repository,
       commentActionRepository: commentActionRepository as any,
+      directMessageRepository: directMessageRepository as any,
       publisher,
       database,
       logger,
@@ -97,12 +110,12 @@ describe("SlackCommandsRoute", () => {
     assert.strictEqual(response.text, "You are not authorized to approve or reject posts.");
   });
 
-  it("CMD-011: should enqueue valid command and return processing", async () => {
+  it("CMD-011: should return processing without waiting for RabbitMQ publish confirm", async () => {
     (verifier.verify as any).mock.mockImplementation(() => ({ valid: true }));
     (parser.parse as any).mock.mockImplementation(() => ({ action: "approve", postId: "POST-123", reason: null }));
     (repository.insertReceivedEvent as any).mock.mockImplementation(async () => ({ id: "event-1" }));
     (repository.getWorkspaceRole as any).mock.mockImplementation(async () => "manager");
-    (publisher.publishSlackCommandAction as any).mock.mockImplementation(async () => undefined);
+    (publisher.publishSlackCommandAction as any).mock.mockImplementation(() => new Promise<void>(() => {}));
 
     const response = await request(app)
       .post("/api/v1/slack/commands")

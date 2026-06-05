@@ -42,7 +42,6 @@ export class CommentSyncScheduler {
 
   async runCycle() {
     const client = await this.dbPool.connect();
-    let jobIds: string[] = [];
 
     try {
       await client.query("BEGIN");
@@ -53,7 +52,7 @@ export class CommentSyncScheduler {
         return;
       }
 
-      jobIds = targets.map(t => t.id);
+      const jobIds = targets.map(t => t.id);
 
       // Enqueue sync requests
       for (const target of targets) {

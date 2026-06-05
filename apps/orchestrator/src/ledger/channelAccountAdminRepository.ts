@@ -21,7 +21,8 @@ export class ChannelAccountAdminRepository {
       scopes: string[];
       expiresAt: string | null;
       airtableRecordId?: string | null;
-    }
+    },
+    actorId: string
   ): Promise<string> {
     // 1. Upsert channel_accounts (using workspace_id, platform, external_account_id as unique key)
     // We fall back to airtable_channel_account_record_id as an alternate key if needed,
@@ -88,8 +89,8 @@ export class ChannelAccountAdminRepository {
       entityType: "channel_account",
       entityId: channelAccountId,
       eventType: "FACEBOOK_PAGE_CONNECTED",
-      actorId: "system", // Admin user ID could go here in future
-      actorType: "user",
+      actorId: actorId,
+      actorType: "admin",
       metadata: {
         platform: params.platform,
         externalAccountId: params.externalAccountId,
@@ -109,7 +110,8 @@ export class ChannelAccountAdminRepository {
       missingScopes?: string[];
       permissionErrorCode?: number;
       lastCheckedAt: string;
-    }
+    },
+    actorId: string = "system" // fallback for background jobs
   ) {
     await client.query(
       `
@@ -154,8 +156,8 @@ export class ChannelAccountAdminRepository {
       entityType: "channel_account",
       entityId: channelAccountId,
       eventType: action,
-      actorId: "system",
-      actorType: "system",
+      actorId: actorId,
+      actorType: actorId === "system" ? "system" : "admin",
       metadata: {
         status: params.status,
         missingScopes: params.missingScopes,
@@ -167,7 +169,8 @@ export class ChannelAccountAdminRepository {
   async disconnectChannelAccount(
     client: pg.PoolClient,
     workspaceId: string,
-    channelAccountId: string
+    channelAccountId: string,
+    actorId: string
   ) {
     // 1. Mark account inactive
     await client.query(
@@ -195,8 +198,8 @@ export class ChannelAccountAdminRepository {
       entityType: "channel_account",
       entityId: channelAccountId,
       eventType: "FACEBOOK_PAGE_DISCONNECTED",
-      actorId: "system",
-      actorType: "user",
+      actorId: actorId,
+      actorType: "admin",
       metadata: {}
     });
   }

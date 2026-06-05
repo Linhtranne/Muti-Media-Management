@@ -18,6 +18,7 @@ const testFiles = [
   "packages/shared-contracts/dist/__tests__/facebookCommentContracts.test.js",
   "packages/shared-contracts/dist/__tests__/composer.test.js",
   "packages/shared-contracts/dist/__tests__/envelope.test.js",
+  "packages/shared-contracts/dist/__tests__/directMessageContracts.test.js",
   "packages/policy-engine/dist/__tests__/policyEngine.test.js",
   "apps/facebook-mcp-server/dist/__tests__/secretStore.test.js",
   "apps/facebook-mcp-server/dist/__tests__/databaseSecretStore.test.js",
@@ -51,15 +52,26 @@ const testFiles = [
   "apps/orchestrator/dist/__tests__/slackCommandsRoute.test.js",
   "apps/orchestrator/dist/__tests__/slackPostApprovalWorker.test.js",
   "apps/facebook-mcp-server/dist/tools/__tests__/replyComment.test.js",
+  "apps/facebook-mcp-server/dist/tools/__tests__/directMessage.test.js",
   "apps/orchestrator/dist/workers/__tests__/slackCommentActionWorker.test.js",
   "apps/orchestrator/dist/queue/__tests__/slackCommentActionRabbitmqConsumer.test.js",
   "packages/shared-contracts/dist/__tests__/mcp/facebookAuth.test.js",
   "apps/orchestrator/dist/__tests__/facebookAdminRoute.test.js",
   "packages/shared-contracts/dist/__tests__/reportsContracts.test.js",
   "apps/orchestrator/dist/__tests__/reportRepository.test.js",
+  "apps/orchestrator/dist/__tests__/directMessageRepository.test.js",
   "apps/orchestrator/dist/__tests__/reportsRoute.test.js",
+  // US-015: Unified DM tests
+  "apps/orchestrator/dist/lib/__tests__/dmRedactor.test.js",
+  "apps/orchestrator/dist/workers/__tests__/directMessageIngestWorker.test.js",
+  "apps/orchestrator/dist/workers/__tests__/directMessageReplyWorker.test.js",
+  "apps/orchestrator/dist/queue/__tests__/directMessageIngestRabbitmqConsumer.test.js",
+  "apps/orchestrator/dist/queue/__tests__/directMessageReplyRabbitmqConsumer.test.js",
+
   // US-014 topology tests
-  "apps/orchestrator/dist/queue/__tests__/topologyConfig.test.js"
+  "apps/orchestrator/dist/queue/__tests__/topologyConfig.test.js",
+  "apps/orchestrator/dist/queue/__tests__/rabbitmqPublisher.test.js",
+  "apps/orchestrator/dist/queue/__tests__/rabbitmqConsumer.test.js"
 ];
 
 const absoluteFiles = testFiles.map((f) => path.resolve(__dirname, f));

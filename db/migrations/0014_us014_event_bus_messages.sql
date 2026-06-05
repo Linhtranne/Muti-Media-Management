@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS event_bus_messages (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  -- Unique constraint — idempotency_key must be globally unique per workspace
+  -- Unique constraint — idempotency_key must be unique per workspace
   CONSTRAINT event_bus_messages_idempotency_key_unique
-    UNIQUE (idempotency_key)
+    UNIQUE (workspace_id, idempotency_key)
 );
 
 -- ─── Indexes ───────────────────────────────────────────────────────────────────
@@ -46,7 +46,8 @@ ALTER TABLE event_bus_messages ENABLE ROW LEVEL SECURITY;
 -- Workers run as service role and must set app.current_workspace_id
 CREATE POLICY event_bus_messages_workspace_isolation
   ON event_bus_messages
-  USING (workspace_id = current_setting('app.current_workspace_id', true));
+  USING (workspace_id = current_setting('app.current_workspace_id', true))
+  WITH CHECK (workspace_id = current_setting('app.current_workspace_id', true));
 
 -- ─── Comments ─────────────────────────────────────────────────────────────────
 COMMENT ON TABLE event_bus_messages IS

@@ -20,6 +20,29 @@ BEGIN
   END IF;
 END $$;
 
+-- Disable trigger temporarily if it exists for backfilling
+DROP TRIGGER IF EXISTS enforce_append_only_audit_logs_update ON audit_logs;
+
+-- Backfill correlation_id
+UPDATE audit_logs SET correlation_id = id::text WHERE correlation_id IS NULL;
+ALTER TABLE audit_logs ALTER COLUMN correlation_id SET NOT NULL;
+
+-- Severity constraint
+UPDATE audit_logs SET severity = 'info' WHERE severity NOT IN ('info', 'warn', 'error', 'critical');
+DO $$ BEGIN
+  ALTER TABLE audit_logs ADD CONSTRAINT chk_audit_logs_severity CHECK (severity IN ('info', 'warn', 'error', 'critical'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Actor type constraint
+UPDATE audit_logs SET actor_type = 'system' WHERE actor_type IS NULL OR actor_type NOT IN ('system', 'user', 'admin', 'ai');
+DO $$ BEGIN
+  ALTER TABLE audit_logs ADD CONSTRAINT chk_audit_logs_actor_type CHECK (actor_type IN ('system', 'user', 'admin', 'ai'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
 -- Create Indexes
 CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace_created_at ON audit_logs (workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity_timeline ON audit_logs (workspace_id, entity_type, entity_id, created_at DESC);

@@ -155,4 +155,46 @@ describe("AuditLogRepository", () => {
     assert.ok(executedSql.includes("event_type"), "SQL should use event_type column");
     assert.ok(!(/\baction\b/.exec(executedSql)), "SQL should not use action column");
   });
+
+  it("should generate SQL with fallback for correlationId", async () => {
+    const repo = new AuditLogRepository();
+    let capturedValues: any[] = [];
+    const mockClient = {
+      query: async (text: string, values: any[]) => {
+        capturedValues = values;
+      }
+    };
+
+    await repo.insertAuditLog(mockClient as any, {
+      workspaceId: "ws-1",
+      eventType: "test_event",
+      entityType: "test_entity",
+      entityId: "e-1",
+      idempotencyKey: "idem-1",
+      metadata: {}
+    });
+
+    // correlation_id is at index 6 (7th parameter)
+    assert.equal(capturedValues[6], "idem-1");
+  });
+});
+
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+describe("Migration US-010 Hardening", () => {
+  it("should contain required constraints and triggers", () => {
+    // Determine path based on process.cwd() or fallback
+    let migrationPath = path.join(process.cwd(), "db", "migrations", "0010_us010_operational_ledger_audit_log.sql");
+    if (!fs.existsSync(migrationPath)) {
+      migrationPath = path.join(process.cwd(), "..", "..", "db", "migrations", "0010_us010_operational_ledger_audit_log.sql");
+    }
+    const content = fs.readFileSync(migrationPath, "utf-8");
+
+    assert.ok(content.includes("ALTER COLUMN correlation_id SET NOT NULL"));
+    assert.ok(content.includes("CHECK (severity IN ('info', 'warn', 'error', 'critical'))"));
+    assert.ok(content.includes("CHECK (actor_type IN ('system', 'user', 'admin', 'ai'))"));
+    assert.ok(content.includes("prevent_audit_logs_update_delete"));
+    assert.ok(content.includes("CREATE UNIQUE INDEX IF NOT EXISTS uq_audit_logs_idempotency"));
+  });
 });

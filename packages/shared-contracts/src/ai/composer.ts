@@ -31,6 +31,19 @@ export const AiErrorCodeSchema = z.enum([
 
 export type AiErrorCode = z.infer<typeof AiErrorCodeSchema>;
 
+export const NotionContextRefSchema = z.object({
+  notion_page_id: z.string().optional(),
+  notion_brief_url: z.string().url().optional(),
+  load_status: z.enum(["success", "failed", "fallback"]),
+  ai_ready: z.boolean(),
+  error_code: AiErrorCodeSchema.optional(),
+  error_message: z.string().max(255).optional(),
+  fallback_source: z.string().optional()
+}).strict();
+
+export type NotionContextRef = z.infer<typeof NotionContextRefSchema>;
+
+
 export const StructuredComposerOutputSchema = z.object({
   body: z.string(),
   hashtags: z.array(z.string()),
@@ -70,7 +83,7 @@ export const AiGenerationRunSchema = z.object({
   model: z.string(),
   prompt_version: z.string(),
   input_snapshot: z.record(z.any()),
-  notion_context_refs: z.array(z.any()),
+  notion_context_refs: z.array(NotionContextRefSchema),
   output_snapshot: z.union([
     StructuredComposerOutputSchema,
     z.object({

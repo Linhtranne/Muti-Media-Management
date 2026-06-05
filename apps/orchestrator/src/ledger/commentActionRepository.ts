@@ -163,7 +163,11 @@ export class CommentActionRepository {
     status: string
   ): Promise<void> {
     await client.query(
-      `UPDATE interactions SET status = $3, updated_at = NOW() WHERE workspace_id = $1 AND id = $2`,
+      `UPDATE interactions 
+       SET status = $3, 
+           updated_at = NOW(), 
+           resolved_at = CASE WHEN $3 = 'resolved' THEN COALESCE(resolved_at, NOW()) ELSE resolved_at END 
+       WHERE workspace_id = $1 AND id = $2`,
       [workspaceId, interactionId, status]
     );
   }
@@ -182,5 +186,46 @@ export class CommentActionRepository {
       metadata: input.metadata,
       correlationId: input.correlationId
     });
+  }
+
+  async resolveFacebookChannelAccountForInteraction(
+    client: pg.PoolClient,
+    workspaceId: string,
+    interactionId: string
+  ): Promise<string | null> {
+    // Attempt 1: Join via publish_jobs if available
+    const jobRes = await client.query<{ channel_account_id: string }>(
+      `SELECT pj.channel_account_id 
+       FROM interactions i
+       JOIN publish_jobs pj ON i.publish_job_id = pj.id
+       WHERE i.id = $1 AND i.workspace_id = $2 AND i.platform = 'facebook'`,
+      [interactionId, workspaceId]
+    );
+    if (jobRes.rows.length > 0 && jobRes.rows[0].channel_account_id) {
+      return jobRes.rows[0].channel_account_id;
+    }
+
+    // Attempt 2: Extract page_id from external_post_id (e.g. "pageId_postId")
+    const extRes = await client.query<{ external_post_id: string }>(
+      `SELECT external_post_id FROM interactions WHERE id = $1 AND workspace_id = $2 AND platform = 'facebook'`,
+      [interactionId, workspaceId]
+    );
+    
+    if (extRes.rows.length > 0 && extRes.rows[0].external_post_id) {
+      const parts = extRes.rows[0].external_post_id.split('_');
+      if (parts.length > 1) {
+        const pageId = parts[0];
+        const accountRes = await client.query<{ id: string }>(
+          `SELECT id FROM channel_accounts 
+           WHERE workspace_id = $1 AND platform = 'facebook' AND external_account_id = $2 AND status = 'active' LIMIT 1`,
+          [workspaceId, pageId]
+        );
+        if (accountRes.rows.length > 0) {
+          return accountRes.rows[0].id;
+        }
+      }
+    }
+
+    return null;
   }
 }

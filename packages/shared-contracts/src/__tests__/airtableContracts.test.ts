@@ -13,12 +13,13 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 // Direct relative imports — no alias resolution needed for node:test strip-types mode
-import { AirtableApprovedWebhookSchema } from "../events/airtablePostApproved.js";
-import { AirtableApprovedQueueMessageSchema } from "../events/airtablePostApproved.js";
+
 import { AiComposerQueueMessageSchema } from "../ai/composer.js";
 import {
   createIngressIdempotencyKey,
-  createWorkflowIdempotencyKey
+  createWorkflowIdempotencyKey,
+  AirtableApprovedQueueMessageSchema
+  ,AirtableApprovedWebhookSchema
 } from "../events/airtablePostApproved.js";
 
 // ---------------------------------------------------------------------------

@@ -4,17 +4,17 @@
  */
 
 export class CommentRiskClassifier {
-  private crisisKeywords: string[];
+  private readonly crisisKeywords: string[];
 
-  constructor() {
+  constructor(keywords?: string[]) {
     // Default crisis keywords if not configured
     const defaultKeywords = "scam,fake,lawsuit,sue,fraud,refund";
-    const envKeywords = process.env.CRISIS_KEYWORDS || defaultKeywords;
+    const envKeywords = process.env.COMMENT_RISK_KEYWORDS || process.env.CRISIS_KEYWORDS || defaultKeywords;
+    const rawKeywords = keywords ?? envKeywords.split(",");
     
     // Split by comma, trim whitespace, and filter out empty strings
-    this.crisisKeywords = envKeywords
-      .split(',')
-      .map(k => k.trim().toLowerCase())
+    this.crisisKeywords = rawKeywords
+      .map(k => k.normalize("NFC").trim().toLowerCase())
       .filter(k => k.length > 0);
   }
 
@@ -30,7 +30,7 @@ export class CommentRiskClassifier {
       return "NORMAL";
     }
 
-    const normalizedBody = commentBody.toLowerCase();
+    const normalizedBody = commentBody.normalize("NFC").toLowerCase();
 
     for (const keyword of this.crisisKeywords) {
       // Basic substring matching. Could be upgraded to regex word boundary (\b) 

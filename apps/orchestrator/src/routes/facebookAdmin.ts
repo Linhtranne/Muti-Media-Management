@@ -46,9 +46,8 @@ function parseMcpJson(response: unknown): unknown {
   return JSON.parse(content.text) as unknown;
 }
 
-// MVP In-Memory Session Cache
-// Note: This is volatile and acts as a production blocker for multi-replica deployment.
-const oauthSessions = new Map<string, { workspaceId: string; actorId: string; userTokenRef: string; expiresAt: number }>();
+// MVP In-Memory Session Cache has been replaced by DB table
+// to allow multi-replica deployment and persistence across restarts.
 
 const OAuthCallbackBodySchema = z.object({
   code: z.string().min(1)
@@ -169,14 +168,16 @@ export function createFacebookAdminRouter(
 
       const data = StrictExchangeCodeResultSchema.parse(parseMcpJson(result));
       
-      // Store userTokenRef in server-side session instead of leaking to client
       const connectionSessionId = randomUUID();
       const ttlMs = 15 * 60 * 1000; // 15 minutes
-      oauthSessions.set(connectionSessionId, {
-        workspaceId,
-        actorId: String(res.locals.actorId),
-        userTokenRef: data.userTokenRef,
-        expiresAt: Date.now() + ttlMs
+      const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+
+      await database.transaction(workspaceId, async (client) => {
+        await client.query(
+          `INSERT INTO facebook_oauth_sessions (id, workspace_id, actor_id, user_token_ref, expires_at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [connectionSessionId, workspaceId, res.locals.actorId, data.userTokenRef, expiresAt]
+        );
       });
 
       res.status(200).json({
@@ -200,40 +201,48 @@ export function createFacebookAdminRouter(
       }
       const { pageId, connectionSessionId } = body.data;
 
-      const session = oauthSessions.get(connectionSessionId);
-      if (!session || session.expiresAt < Date.now()) {
-        oauthSessions.delete(connectionSessionId); // Clean up if expired
-        res.status(400).json({ error: "OAUTH_SESSION_EXPIRED" });
-        return;
-      }
+      let userTokenRef: string | undefined;
 
-      if (session.workspaceId !== workspaceId || session.actorId !== String(res.locals.actorId)) {
-        res.status(403).json({ error: "Session invalid for this context" });
+      await database.transaction(workspaceId, async (client) => {
+        const result = await client.query<{ user_token_ref: string }>(
+          `UPDATE facebook_oauth_sessions
+           SET consumed_at = NOW()
+           WHERE id = $1 AND workspace_id = $2 AND actor_id = $3 AND consumed_at IS NULL AND expires_at > NOW()
+           RETURNING user_token_ref`,
+          [connectionSessionId, workspaceId, res.locals.actorId]
+        );
+        userTokenRef = result.rows[0]?.user_token_ref;
+      });
+
+      if (!userTokenRef) {
+        res.status(400).json({ error: "OAUTH_SESSION_EXPIRED" });
         return;
       }
 
       const result = await mcpClient.callTool("connectPage", {
         workspaceId,
         pageId,
-        userTokenRef: session.userTokenRef
+        userTokenRef
       });
-      
-      // Clear session after terminal attempt
-      oauthSessions.delete(connectionSessionId);
 
       const data = ConnectPageResultSchema.parse(parseMcpJson(result));
 
       // Ledger upsert
       let channelAccountId: string | undefined;
       await database.transaction(workspaceId, async (client) => {
-        channelAccountId = await repo.upsertChannelAccountAndToken(client, workspaceId, {
-          platform: "facebook",
-          externalAccountId: data.externalAccountId,
-          displayName: data.displayName,
-          secretRef: data.secretRef,
-          scopes: data.scopes,
-          expiresAt: data.expiresAt
-        });
+        channelAccountId = await repo.upsertChannelAccountAndToken(
+          client, 
+          workspaceId, 
+          {
+            platform: "facebook",
+            externalAccountId: data.externalAccountId,
+            displayName: data.displayName,
+            secretRef: data.secretRef,
+            scopes: data.scopes,
+            expiresAt: data.expiresAt
+          },
+          String(res.locals.actorId)
+        );
       });
 
       if (!channelAccountId) {
@@ -281,7 +290,7 @@ export function createFacebookAdminRouter(
           missingScopes: data.missingScopes,
           permissionErrorCode: data.permissionErrorCode,
           lastCheckedAt: data.lastCheckedAt
-        });
+        }, String(res.locals.actorId));
       });
 
       // Optional: Airtable sync safe fields
@@ -328,7 +337,7 @@ export function createFacebookAdminRouter(
       const account = await database.transaction(workspaceId, async (client) => {
         const currentAccount = await repo.getChannelAccount(client, workspaceId, channelAccountId);
         if (currentAccount) {
-          await repo.disconnectChannelAccount(client, workspaceId, channelAccountId);
+          await repo.disconnectChannelAccount(client, workspaceId, channelAccountId, String(res.locals.actorId));
         }
         return currentAccount;
       });

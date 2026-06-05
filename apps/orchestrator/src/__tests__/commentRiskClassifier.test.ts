@@ -4,9 +4,11 @@ import { CommentRiskClassifier } from "../services/commentRiskClassifier.js";
 
 describe("CommentRiskClassifier", () => {
   let originalEnv: string | undefined;
+  let originalCommentRiskEnv: string | undefined;
 
   beforeEach(() => {
     originalEnv = process.env.CRISIS_KEYWORDS;
+    originalCommentRiskEnv = process.env.COMMENT_RISK_KEYWORDS;
   });
 
   afterEach(() => {
@@ -15,10 +17,16 @@ describe("CommentRiskClassifier", () => {
     } else {
       process.env.CRISIS_KEYWORDS = originalEnv;
     }
+    if (originalCommentRiskEnv === undefined) {
+      delete process.env.COMMENT_RISK_KEYWORDS;
+    } else {
+      process.env.COMMENT_RISK_KEYWORDS = originalCommentRiskEnv;
+    }
   });
 
   it("should use default keywords when env is not set", () => {
     delete process.env.CRISIS_KEYWORDS;
+    delete process.env.COMMENT_RISK_KEYWORDS;
     const classifier = new CommentRiskClassifier();
     
     assert.equal(classifier.classify("This is a total scam!"), "CRISIS");
@@ -27,7 +35,7 @@ describe("CommentRiskClassifier", () => {
   });
 
   it("should use configured keywords from env", () => {
-    process.env.CRISIS_KEYWORDS = "terrible,awful,bad";
+    process.env.COMMENT_RISK_KEYWORDS = "terrible,awful,bad";
     const classifier = new CommentRiskClassifier();
     
     assert.equal(classifier.classify("This is awful"), "CRISIS");

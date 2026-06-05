@@ -19,6 +19,8 @@ Successfully implemented the end-to-end flow for syncing Facebook comments into 
 - [x] T-009/T-010/T-011: Wired consumers, publisher, and scheduler in `server.ts` and updated `FacebookMcpClient` to expose `syncComments`.
 - [x] T-012: Updated `docs/requirements/05_Function_Flow_Logic_Register.md` to add `FL-005` (Facebook Comment Sync) and fix mislabeled `FL-004b` to `FL-006` (Slack Command Handler).
 - [x] Test passing: Ensured all unit tests in `apps/orchestrator` and `apps/facebook-mcp-server` pass.
+- [x] Production hardening: moved Slack alert enqueue after Ledger commit, added RLS workspace context, wired real Slack channel routing, classified risk from full MCP comment body before queue truncation, and added compensation for Slack enqueue failure.
+- [x] Test runner: added US-007 contract/MCP/classifier/worker tests to `run-tests.mjs`.
 
 ## How It Was Done
 ### Approach
@@ -53,6 +55,7 @@ Successfully implemented the end-to-end flow for syncing Facebook comments into 
 | `apps/orchestrator/src/queue/rabbitmqPublisher.ts` | Modified | Added event publishers. |
 | `apps/orchestrator/src/server.ts` | Modified | Wired up new services, consumers, scheduler. |
 | `docs/requirements/05_Function_Flow_Logic_Register.md` | Modified | Documented `FL-005` flow and fixed `FL-006`. |
+| `run-tests.mjs` | Modified | Added US-007 tests to the explicit Node test runner. |
 
 ## Impact & Purpose
 Automates continuous ingestion of Facebook comments without needing webhook setups on Meta side. Enforces a scalable queue topology where the orchestrator manages scheduling, the MCP isolates credentials, and the worker safely handles idempotency and risk classification before routing critical items to Slack.
@@ -65,6 +68,7 @@ Automates continuous ingestion of Facebook comments without needing webhook setu
 
 ## Verification
 - [x] Tests passed (`npm test` passed 148 tests in orchestrator, 44 tests in MCP).
+- [x] Production hardening verification passed (`npm run build`, `npm run lint:eslint`, `npm test` passed 262 tests / 64 suites on 2026-06-03).
 - [x] Docs updated (`05_Function_Flow_Logic_Register.md`).
 - [x] No secrets exposed (Strictly enforced MCP token encapsulation).
 - [x] Acceptance criteria met: Syncs comments, updates Ledger, supports risk routing, prevents duplicates.

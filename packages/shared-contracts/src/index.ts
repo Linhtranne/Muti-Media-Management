@@ -1,6 +1,7 @@
 export * from "./events/airtablePostApproved.js";
 export * from "./events/envelope.js";
 export * from "./events/facebookCommentSync.js";
+export * from "./events/directMessage.js";
 export * from "./ledger/webhookEventStatus.js";
 export * from "./ledger/workflowRunStatus.js";
 export * from "./ledger/channelAccountRef.js";

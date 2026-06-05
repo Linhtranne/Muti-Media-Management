@@ -9,10 +9,15 @@ import type {
   SlackCommentActionEvent,
   CommentSyncRequestedEvent,
   CommentIngestEvent,
-  CanonicalEventEnvelope
+  CanonicalEventEnvelope,
+  DirectMessageIngestEvent,
+  DirectMessageReplyRequestedEvent
 } from "@mediaops/shared-contracts";
 import { assertNoForbiddenFields } from "@mediaops/shared-contracts";
 import { CANONICAL_TOPIC_EXCHANGE } from "./topologyConfig.js";
+import type { Database } from "../ledger/postgres.js";
+import type { Logger } from "../lib/logger.js";
+import { auditQueuePublished } from "./queueAuditHelper.js";
 
 export interface QueuePublisher {
   publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void>;
@@ -25,11 +30,17 @@ export interface QueuePublisher {
   publishSlackCommentAction(message: SlackCommentActionEvent, messageId: string): Promise<void>;
   publishCommentSyncRequest(message: CommentSyncRequestedEvent, messageId: string): Promise<void>;
   publishCommentIngest(message: CommentIngestEvent, messageId: string): Promise<void>;
+  publishDirectMessageIngest(message: DirectMessageIngestEvent, messageId: string): Promise<void>;
+  publishDirectMessageReplyRequested(message: DirectMessageReplyRequestedEvent, messageId: string): Promise<void>;
   /** US-014: Publish a canonical event to the mediaops.events.topic exchange */
   publishCanonicalEvent(envelope: CanonicalEventEnvelope, routingKey: string): Promise<void>;
 }
 
-export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<QueuePublisher> {
+export async function createRabbitMqPublisher(
+  rabbitmqUrl: string,
+  database?: Database,
+  logger?: Logger
+): Promise<QueuePublisher> {
   const connection = await amqp.connect(rabbitmqUrl);
   const channel = await connection.createConfirmChannel();
 
@@ -75,8 +86,38 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
   // US-014: Assert canonical topic exchange (additive — does not break legacy)
   await channel.assertExchange(CANONICAL_TOPIC_EXCHANGE, "topic", { durable: true });
 
+  async function trackPublish(
+    message: unknown,
+    messageId: string,
+    fallbackQueueOrExchange: string,
+    fallbackCorrelationId?: string
+  ): Promise<void> {
+    if (database && logger) {
+      const workspaceId = (message as any).workspace_id || (message as any).workspaceId || "system";
+      const eventId = (message as any).event_id || (message as any).eventId || messageId;
+      const eventType = (message as any).event_type || (message as any).eventType || "unknown";
+      const correlationId = (message as any).correlation_id || (message as any).correlationId || fallbackCorrelationId || messageId;
+
+      await auditQueuePublished(
+        database.getPool(),
+        {
+          workspaceId,
+          queueName: fallbackQueueOrExchange,
+          eventId,
+          eventType,
+          correlationId,
+          messageId
+        },
+        logger
+      ).catch((err) => {
+        logger.warn("Failed to write QUEUE_EVENT_PUBLISHED audit in publisher", { error: String(err) });
+      });
+    }
+  }
+
   return {
     async publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishApprovedPost");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(exchange, routingKey, body, {
         contentType: "application/json",
@@ -92,9 +133,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, routingKey);
     },
 
     async publishAiComposerRequest(message: AiComposerQueueMessage, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishAiComposerRequest");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(aiExchange, aiRoutingKey, body, {
         contentType: "application/json",
@@ -110,9 +153,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, aiRoutingKey);
     },
 
     async publishFacebookRequest(message: PublishFacebookRequestedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishFacebookRequest");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, publishRoutingKey, body, {
         contentType: "application/json",
@@ -128,9 +173,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, publishRoutingKey);
     },
 
     async publishSlackAlert(message: Record<string, unknown>, messageId: string, correlationId?: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishSlackAlert");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(alertsExchange, slackAlertRoutingKey, body, {
         contentType: "application/json",
@@ -146,9 +193,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, slackAlertRoutingKey, correlationId);
     },
 
     async publishFacebookValidated(message: PublishFacebookValidatedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishFacebookValidated");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, "publish.facebook.validated", body, {
         contentType: "application/json",
@@ -164,9 +213,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, "publish.facebook.validated");
     },
 
     async publishFacebookExecute(message: PublishFacebookExecuteEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishFacebookExecute");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, "publish.facebook.execute", body, {
         contentType: "application/json",
@@ -182,9 +233,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, "publish.facebook.execute");
     },
 
     async publishSlackCommandAction(message: SlackCommandActionEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishSlackCommandAction");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(slackExchange, slackCommandRoutingKey, body, {
         contentType: "application/json",
@@ -200,9 +253,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, slackCommandRoutingKey);
     },
 
     async publishSlackCommentAction(message: SlackCommentActionEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishSlackCommentAction");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(slackExchange, slackCommentActionRoutingKey, body, {
         contentType: "application/json",
@@ -218,9 +273,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, slackCommentActionRoutingKey);
     },
 
     async publishCommentSyncRequest(message: CommentSyncRequestedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishCommentSyncRequest");
       const body = Buffer.from(JSON.stringify(message));
       // Ensure comments exchange exists. Our consumers will assert it, but publisher should just publish.
       const commentsExchange = "comments.workflows";
@@ -240,9 +297,11 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, commentsRoutingKey);
     },
 
     async publishCommentIngest(message: CommentIngestEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishCommentIngest");
       const body = Buffer.from(JSON.stringify(message));
       const commentsExchange = "comments.workflows";
       const commentsRoutingKey = "comments.facebook.ingest";
@@ -261,6 +320,7 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(message, messageId, commentsRoutingKey);
     },
 
     // ── US-014: Canonical Event Publisher ───────────────────────────────────
@@ -284,6 +344,49 @@ export async function createRabbitMqPublisher(rabbitmqUrl: string): Promise<Queu
       }
 
       await channel.waitForConfirms();
+      await trackPublish(envelope, envelope.event_id, routingKey);
+    },
+
+    async publishDirectMessageIngest(message: DirectMessageIngestEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishDirectMessageIngest");
+      assertNoForbiddenFields(message.payload, "publishDirectMessageIngest.payload");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, message.event_type, body, {
+        contentType: "application/json",
+        deliveryMode: 2,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, message.event_type);
+    },
+
+    async publishDirectMessageReplyRequested(message: DirectMessageReplyRequestedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishDirectMessageReplyRequested");
+      assertNoForbiddenFields(message.payload, "publishDirectMessageReplyRequested.payload");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, message.event_type, body, {
+        contentType: "application/json",
+        deliveryMode: 2,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, message.event_type);
     }
   };
 }

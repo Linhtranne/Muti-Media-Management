@@ -6,15 +6,17 @@ import type { SlackSignatureVerifier } from "../services/slackSignatureVerifier.
 import type { SlackCommandParser, ParsedSlackCommand, ParseError } from "../services/slackCommandParser.js";
 import type { SlackCommandRepository } from "../ledger/slackCommandRepository.js";
 import type { CommentActionRepository } from "../ledger/commentActionRepository.js";
+import type { DirectMessageRepository } from "../ledger/directMessageRepository.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
 import type { Logger } from "../lib/logger.js";
 import type { Database } from "../ledger/postgres.js";
-import type { SlackCommandActionEvent, SlackCommentActionEvent } from "@mediaops/shared-contracts";
+import type { SlackCommandActionEvent, SlackCommentActionEvent, DirectMessageReplyRequestedEvent } from "@mediaops/shared-contracts";
 
 type SlackRouteTxResult =
   | { type: "duplicate" | "invalid" | "unauthorized"; text: string }
   | { type: "success_approve_reject"; publishEvent: SlackCommandActionEvent; eventId: string }
-  | { type: "success_comment_action"; publishEvent: SlackCommentActionEvent; eventId: string };
+  | { type: "success_comment_action"; publishEvent: SlackCommentActionEvent; eventId: string }
+  | { type: "success_dm_reply"; publishEvent: DirectMessageReplyRequestedEvent; jobId: string };
 
 interface SlackCommandRequestContext {
   workspaceId: string;
@@ -38,6 +40,7 @@ export interface SlackCommandsRouterDependencies {
   parser: SlackCommandParser;
   repository: SlackCommandRepository;
   commentActionRepository: CommentActionRepository;
+  directMessageRepository: DirectMessageRepository;
   publisher: QueuePublisher;
   database: Database;
   logger: Logger;
@@ -51,6 +54,7 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
     parser,
     repository,
     commentActionRepository,
+    directMessageRepository,
     database,
     logger,
     workspaceId,
@@ -142,15 +146,23 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
           } else if (command === "/reply_comment" || command === "/escalate") {
             return handleCommentActionCommand(client, requestContext, handlerContext);
 
+          } else if (command === "/reply_dm") {
+            return handleDirectMessageReplyCommand(client, requestContext, directMessageRepository);
+
           } else {
             return { type: "invalid", text: "Unknown command." };
           }
         });
 
         if (txResult.type === "success_approve_reject") {
-          await publishApproveRejectAction(txResult, deps, correlationId, slackUserId, res);
+          res.status(200).send("Processing your request...");
+          void publishApproveRejectAction(txResult, deps, correlationId, slackUserId);
         } else if (txResult.type === "success_comment_action") {
-          await publishCommentAction(txResult, deps, correlationId, slackUserId, res);
+          res.status(200).send("Processing your request...");
+          void publishCommentAction(txResult, deps, correlationId, slackUserId);
+        } else if (txResult.type === "success_dm_reply") {
+          res.status(200).send("Processing your request...");
+          void publishDmReplyAction(txResult, deps, correlationId, slackUserId);
         } else {
           res.status(200).send(txResult.text);
         }
@@ -176,13 +188,11 @@ async function publishApproveRejectAction(
   txResult: Extract<SlackRouteTxResult, { type: "success_approve_reject" }>,
   deps: SlackCommandsRouterDependencies,
   correlationId: string,
-  slackUserId: string,
-  res: Response
+  slackUserId: string
 ) {
   const { publisher, database, repository, logger, workspaceId } = deps;
   try {
     await publisher.publishSlackCommandAction(txResult.publishEvent, txResult.publishEvent.event_id);
-    res.status(200).send("Processing your request...");
   } catch (pubErr) {
     logger.error("Failed to publish slack command action to RabbitMQ", { error: String(pubErr), correlationId });
     try {
@@ -201,7 +211,6 @@ async function publishApproveRejectAction(
     } catch (dbErr) {
       logger.error("Failed to mark slack command as failed after publish error", { error: String(dbErr), correlationId });
     }
-    res.status(200).send("Failed to process your request due to an internal error. Please try again.");
   }
 }
 
@@ -209,13 +218,11 @@ async function publishCommentAction(
   txResult: Extract<SlackRouteTxResult, { type: "success_comment_action" }>,
   deps: SlackCommandsRouterDependencies,
   correlationId: string,
-  slackUserId: string,
-  res: Response
+  slackUserId: string
 ) {
   const { publisher, database, commentActionRepository, logger, workspaceId } = deps;
   try {
     await publisher.publishSlackCommentAction(txResult.publishEvent, txResult.publishEvent.event_id);
-    res.status(200).send("Processing your request...");
   } catch (pubErr) {
     logger.error("Failed to publish comment action to RabbitMQ", { error: String(pubErr), correlationId });
     try {
@@ -234,7 +241,6 @@ async function publishCommentAction(
     } catch (dbErr) {
       logger.error("Failed to mark comment action as failed after publish error", { error: String(dbErr), correlationId });
     }
-    res.status(200).send("Failed to process your request due to an internal error. Please try again.");
   }
 }
 
@@ -380,5 +386,121 @@ async function handleCommentActionCommand(
       created_at: new Date().toISOString()
     },
     eventId: event.id
+  };
+}
+
+async function publishDmReplyAction(
+  txResult: Extract<SlackRouteTxResult, { type: "success_dm_reply" }>,
+  deps: SlackCommandsRouterDependencies,
+  correlationId: string,
+  slackUserId: string
+) {
+  const { publisher, database, directMessageRepository, logger, workspaceId } = deps;
+  try {
+    await publisher.publishDirectMessageReplyRequested(txResult.publishEvent, txResult.publishEvent.event_id);
+    await database.transaction(workspaceId, async (client) => {
+      await client.query(
+        `UPDATE direct_message_reply_jobs SET status = 'queued', updated_at = NOW() WHERE id = $1`,
+        [txResult.jobId]
+      );
+    });
+  } catch (pubErr) {
+    logger.error("Failed to publish DM reply requested event to RabbitMQ", { error: String(pubErr), correlationId });
+    try {
+      await database.transaction(workspaceId, async (client) => {
+        await directMessageRepository.markReplyJobFailed(
+          client,
+          workspaceId,
+          txResult.jobId,
+          "PUBLISH_FAILED",
+          "Failed to enqueue action"
+        );
+        await directMessageRepository.insertAuditLog(client, {
+          workspaceId,
+          eventType: "DM_REPLY_FAILED",
+          entityId: txResult.jobId,
+          metadata: { error: String(pubErr), reason: "RabbitMQ publishing failed" },
+          correlationId
+        });
+      });
+    } catch (dbErr) {
+      logger.error("Failed to mark DM reply job as failed after publish error", { error: String(dbErr), correlationId });
+    }
+  }
+}
+
+async function handleDirectMessageReplyCommand(
+  client: pg.PoolClient,
+  request: SlackCommandRequestContext,
+  directMessageRepository: DirectMessageRepository
+): Promise<SlackRouteTxResult> {
+  const {
+    workspaceId,
+    slackUserId,
+    idempotencyKey,
+    correlationId,
+    parsed
+  } = request;
+
+  if (parsed.error) {
+    return { type: "invalid", text: parsed.message };
+  }
+
+  const parsedDm = parsed as Extract<ParsedSlackCommand, { action: "reply_dm" }>;
+
+  // 1. Resolve Slack user in workspace_members
+  const member = await directMessageRepository.getWorkspaceMemberBySlackUser(client, workspaceId, slackUserId);
+  if (!member) {
+    return { type: "unauthorized", text: "Slack user is not a member of this workspace." };
+  }
+
+  // 2. Validate member role: support/manager/admin allowed, creator/viewer blocked
+  if (member.role !== "support" && member.role !== "manager" && member.role !== "admin") {
+    return { type: "unauthorized", text: "You are not authorized to reply to direct messages." };
+  }
+
+  // 3. Find the conversation by ID
+  const conversation = await directMessageRepository.getConversationById(client, workspaceId, parsedDm.conversationId);
+  if (!conversation) {
+    return { type: "invalid", text: "Conversation not found." };
+  }
+
+  // 4. Create reply job idempotently
+  const job = await directMessageRepository.createReplyJobIdempotently(client, workspaceId, {
+    conversationId: conversation.id,
+    actorId: member.id,
+    replyBody: parsedDm.message,
+    idempotencyKey: idempotencyKey
+  });
+
+  if (!job) {
+    return { type: "duplicate", text: "This reply request has already been processed." };
+  }
+
+  // 5. Audit DM_REPLY_QUEUED
+  await directMessageRepository.insertAuditLog(client, {
+    workspaceId,
+    eventType: "DM_REPLY_QUEUED",
+    entityId: job.id,
+    metadata: { conversationId: conversation.id, actorId: member.id },
+    correlationId
+  });
+
+  return {
+    type: "success_dm_reply",
+    publishEvent: {
+      event_id: crypto.randomUUID(),
+      event_type: "dm.reply.requested",
+      event_version: 1,
+      workspace_id: workspaceId,
+      idempotency_key: idempotencyKey,
+      correlation_id: correlationId,
+      created_at: new Date().toISOString(),
+      payload: {
+        reply_job_id: job.id,
+        actor_id: member.id
+      }
+    },
+    jobId: job.id
   };
 }

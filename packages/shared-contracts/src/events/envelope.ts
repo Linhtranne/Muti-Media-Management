@@ -24,17 +24,42 @@ const FORBIDDEN_FIELDS = [
 
 type ForbiddenField = (typeof FORBIDDEN_FIELDS)[number];
 
+function normalizeKey(key: string): string {
+  // If it's all uppercase (like ACCESS_TOKEN or TOKEN), just lowercase it.
+  if (key === key.toUpperCase() && !/[a-z]/.test(key)) {
+    return key.toLowerCase();
+  }
+  // Convert first char to lowercase (PascalCase -> camelCase)
+  const camel = key.replace(/^[A-Z]/, (m) => m.toLowerCase());
+  // Convert camelCase to snake_case
+  return camel.replace(/([A-Z])/g, "_$1").toLowerCase();
+}
+
+export function isForbiddenKey(key: string): boolean {
+  return (FORBIDDEN_FIELDS as readonly string[]).includes(normalizeKey(key));
+}
+
 /**
  * Recursively checks a plain object for forbidden fields.
  * Returns list of paths that contain forbidden fields.
  */
 export function findForbiddenFields(obj: unknown, path = ""): string[] {
-  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return [];
+  if (obj === null || typeof obj !== "object") return [];
+
+  if (Array.isArray(obj)) {
+    const violations: string[] = [];
+    obj.forEach((item, index) => {
+      const currentPath = path ? `${path}[${index}]` : `[${index}]`;
+      violations.push(...findForbiddenFields(item, currentPath));
+    });
+    return violations;
+  }
+
   const violations: string[] = [];
   const record = obj as Record<string, unknown>;
   for (const key of Object.keys(record)) {
     const currentPath = path ? `${path}.${key}` : key;
-    if ((FORBIDDEN_FIELDS as readonly string[]).includes(key)) {
+    if (isForbiddenKey(key)) {
       violations.push(currentPath);
     }
     // Recurse into nested objects
@@ -94,9 +119,7 @@ export const CanonicalEventEnvelopeSchema = z
   .strict()
   .superRefine((value, ctx) => {
     // Check top-level forbidden fields
-    const topLevelViolations = (FORBIDDEN_FIELDS as readonly string[]).filter(
-      (f) => Object.hasOwn(value, f)
-    );
+    const topLevelViolations = Object.keys(value).filter((key) => isForbiddenKey(key));
     for (const field of topLevelViolations) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -148,10 +171,10 @@ export function assertNoForbiddenFields(obj: unknown, context = "payload"): void
   // Also check top-level
   if (obj !== null && typeof obj === "object" && !Array.isArray(obj)) {
     const record = obj as Record<string, unknown>;
-    for (const field of FORBIDDEN_FIELDS) {
-      if (Object.hasOwn(record, field)) {
+    for (const key of Object.keys(record)) {
+      if (isForbiddenKey(key)) {
         throw new Error(
-          `Security violation: forbidden field "${field}" in queue message. ` +
+          `Security violation: forbidden field "${key}" in queue message. ` +
             `Raw tokens, secrets, and large payloads must not be published to RabbitMQ.`
         );
       }

@@ -8,7 +8,9 @@ import { validateStructuredOutput, ValidationError } from "../ai/structuredValid
 import { AiWorkerRepository } from "../ledger/aiWorkerRepository.js";
 import { createHash, randomUUID } from "node:crypto";
 import { LlmTimeoutError, LlmRateLimitError } from "../ai/llmAdapter.js";
-import type { AiComposerQueueMessage } from "@mediaops/shared-contracts";
+import type { AiErrorCode, AiComposerQueueMessage } from "@mediaops/shared-contracts";
+import { NotionContextRefSchema } from "@mediaops/shared-contracts";
+import { z } from "zod";
 import { redact } from "../lib/redact.js";
 
 export interface AiWorkerResult {
@@ -23,6 +25,40 @@ export interface AiQueueWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: string;
   errorCode?: string;
+}
+
+interface AirtableFields {
+  status?: string;
+  target_channels?: string[];
+  master_copy?: string;
+  campaign_id?: string[];
+  cta_url?: string;
+  post_id?: string;
+}
+
+interface ValidatedOutput {
+  body: string;
+  hashtags: string[];
+  cta_url?: string;
+}
+
+interface NotionBrief {
+  brief_summary?: string;
+  brand_voice?: string;
+  do_terms?: string[];
+  avoid_terms?: string[];
+  legal_notes?: string;
+}
+
+interface PromptContext {
+  masterCopy: string;
+  ctaUrl: string | undefined;
+  campaignObjective: string;
+  briefSummary: string | null;
+  brandVoice: string | null;
+  doTerms: string[] | null;
+  avoidTerms: string[] | null;
+  legalNotes: string | null;
 }
 
 export class AiComposerWorker {
@@ -55,14 +91,14 @@ export class AiComposerWorker {
 
     const poll = () => {
       void (async () => {
-      try {
-        await this.pollAndProcess();
-      } catch (err) {
-        this.logger.error("Error in AI Composer polling loop", { error: String(err) });
-      }
-      if (this.isRunning) {
-        this.intervalId = setTimeout(poll, intervalMs);
-      }
+        try {
+          await this.pollAndProcess();
+        } catch (err) {
+          this.logger.error("Error in AI Composer polling loop", { error: String(err) });
+        }
+        if (this.isRunning) {
+          this.intervalId = setTimeout(poll, intervalMs);
+        }
       })();
     };
 
@@ -79,11 +115,8 @@ export class AiComposerWorker {
   }
 
   async pollAndProcess(): Promise<void> {
-    // Check for any pending_ai_generation workflows in database
     const pendingRuns = await this.database.query<{ id: string }>(
-      `SELECT id FROM workflow_runs 
-       WHERE workspace_id = $1 AND status = 'pending_ai_generation'
-       ORDER BY created_at ASC`,
+      `SELECT id FROM workflow_runs WHERE workspace_id = $1 AND status = 'pending_ai_generation' ORDER BY created_at ASC`,
       [this.workspaceId]
     );
 
@@ -97,214 +130,159 @@ export class AiComposerWorker {
     const correlationId = randomUUID();
     this.logger.info("AI Composer processing workflow run", { workflowRunId, correlationId });
 
-    // ──────────────────────────────────────────────
-    // 1. Claim Workflow Run (Transaction A)
-    // ──────────────────────────────────────────────
-    let claim;
+    const claimResult = await this.claimRun(workflowRunId);
+    if ("errorStatus" in claimResult) return claimResult.errorStatus;
+    const { aiGenerationRunId, approvedVersion, airtableRecordId } = claimResult;
+
+    const airtableResult = await this.reloadAndValidateAirtable(airtableRecordId, workflowRunId, aiGenerationRunId);
+    if ("errorStatus" in airtableResult) return airtableResult.errorStatus;
+    const fields = airtableResult;
+
+    const notionResult = await this.loadNotionContext(fields, workflowRunId, aiGenerationRunId);
+    if ("errorStatus" in notionResult) return notionResult.errorStatus;
+    const { notionBrief, notionContextRefs } = notionResult;
+
+    const promptContext = this.buildPromptContext(fields, notionBrief);
+    const { systemPrompt, userPrompt } = this.preparePrompts(promptContext, aiGenerationRunId, notionContextRefs);
+
+    const callResult = await this.callAiProvider(systemPrompt, userPrompt, workflowRunId, aiGenerationRunId);
+    if ("errorStatus" in callResult) return callResult.errorStatus;
+
+    const validationResult = await this.validateAiOutput(callResult.generatedText, fields.cta_url, airtableRecordId, workflowRunId, aiGenerationRunId);
+    if ("errorStatus" in validationResult) return validationResult.errorStatus;
+    const validatedOutput = validationResult.output;
+
+    const persistResult = await this.persistVariant(validatedOutput, fields, workflowRunId, aiGenerationRunId, airtableRecordId, approvedVersion, correlationId);
+    if ("errorStatus" in persistResult) return persistResult.errorStatus;
+
+    await this.syncVariantToAirtable(validatedOutput, airtableRecordId, persistResult.variantId);
+
+    return { success: true, status: "completed", variantId: persistResult.variantId };
+  }
+
+  private async claimRun(workflowRunId: string): Promise<{ aiGenerationRunId: string, approvedVersion: number, airtableRecordId: string } | { errorStatus: AiWorkerResult }> {
     try {
-      claim = await this.database.transaction(this.workspaceId, async (client) => {
-        return this.repository.claimWorkflowRun(
-          client,
-          this.workspaceId,
-          workflowRunId,
-          this.promptVersion,
-          "gemini",
-          "gemini-2.5-pro"
-        );
+      const claim = await this.database.transaction(this.workspaceId, async (client) => {
+        return this.repository.claimWorkflowRun(client, this.workspaceId, workflowRunId, this.promptVersion, "gemini", "gemini-2.5-pro");
       });
+
+      if (claim.alreadyCompleted) {
+        this.logger.info("AI generation already completed, fast-pass skip", { workflowRunId, aiGenerationRunId: claim.aiGenerationRunId });
+        return { errorStatus: { success: true, status: "completed" } };
+      }
+
+      if (!claim.success || !claim.aiGenerationRunId || !claim.airtableRecordId || claim.approvedVersion === undefined) {
+        this.logger.warn("Could not claim workflow run or no active generation run created", { workflowRunId });
+        return { errorStatus: { success: false, status: "claim_skipped" } };
+      }
+
+      return { aiGenerationRunId: claim.aiGenerationRunId, approvedVersion: claim.approvedVersion, airtableRecordId: claim.airtableRecordId };
     } catch (err) {
       this.logger.error("Failed to claim workflow run", { workflowRunId, error: String(err) });
-      return { success: false, status: "claim_failed", errorMessage: String(err) };
+      return { errorStatus: { success: false, status: "claim_failed", errorMessage: String(err) } };
     }
+  }
 
-    const { success, alreadyCompleted, aiGenerationRunId, approvedVersion, airtableRecordId } = claim;
-
-    if (alreadyCompleted) {
-      this.logger.info("AI generation already completed, fast-pass skip", { workflowRunId, aiGenerationRunId });
-      return { success: true, status: "completed" };
-    }
-
-    if (!success || !aiGenerationRunId || !airtableRecordId || approvedVersion === undefined) {
-      this.logger.warn("Could not claim workflow run or no active generation run created", { workflowRunId });
-      return { success: false, status: "claim_skipped" };
-    }
-
-    // ──────────────────────────────────────────────
-    // 2. Reload Airtable & Revalidate (Zero-Trust)
-    // ──────────────────────────────────────────────
+  private async reloadAndValidateAirtable(airtableRecordId: string, workflowRunId: string, aiGenerationRunId: string): Promise<AirtableFields | { errorStatus: AiWorkerResult }> {
     let postRecord;
     try {
       postRecord = await this.airtableClient.getPostRecord(airtableRecordId);
     } catch (err) {
       this.logger.error("Airtable Post reload failed", { airtableRecordId, error: String(err) });
-      await this.database.transaction(this.workspaceId, async (client) => {
-        await this.repository.markFailed(
-          client,
-          {
-            workspaceId: this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            errorCode: "AIRTABLE_CONTEXT_UNREACHABLE",
-            errorMessage: `Failed to reload Airtable post: ${String(redact(String(err)))}`,
-            status: "failed"
-          }
-        );
-      });
-      return { success: false, status: "airtable_reload_failed", errorCode: "AIRTABLE_CONTEXT_UNREACHABLE" };
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, "AIRTABLE_CONTEXT_UNREACHABLE", `Failed to reload Airtable post: ${String(redact(String(err)))}`, "failed");
+      return { errorStatus: { success: false, status: "airtable_reload_failed", errorCode: "AIRTABLE_CONTEXT_UNREACHABLE" } };
     }
 
-    const fields = postRecord.fields;
+    const fields = postRecord.fields as AirtableFields;
 
-    // Check status is still compatible (Approved)
     if (fields.status !== "Approved") {
-      this.logger.warn("Airtable post status changed after approval, aborting AI Composer", {
-        airtableRecordId,
-        current_status: fields.status
-      });
-      await this.database.transaction(this.workspaceId, async (client) => {
-        await this.repository.markFailed(
-          client,
-          {
-            workspaceId: this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            errorCode: "STALE_SOURCE_STATUS_CHANGED",
-            errorMessage: `Status changed to '${fields.status}' in Airtable`,
-            status: "failed"
-          }
-        );
-      });
-      return { success: false, status: "status_changed", errorCode: "STALE_SOURCE_STATUS_CHANGED" };
+      this.logger.warn("Airtable post status changed after approval, aborting AI Composer", { airtableRecordId, current_status: fields.status });
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, "STALE_SOURCE_STATUS_CHANGED", `Status changed to '${fields.status ?? "unknown"}' in Airtable`, "failed");
+      return { errorStatus: { success: false, status: "status_changed", errorCode: "STALE_SOURCE_STATUS_CHANGED" } };
     }
 
-    // Check target channels contain Facebook
     const channels = fields.target_channels || [];
     if (!channels.includes("Facebook")) {
       this.logger.warn("Post target channels does not explicitly contain Facebook", { airtableRecordId, channels });
-      await this.database.transaction(this.workspaceId, async (client) => {
-        await this.repository.markFailed(
-          client,
-          {
-            workspaceId: this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            errorCode: "AIRTABLE_CONTEXT_INVALID",
-            errorMessage: "Target channels does not contain Facebook",
-            status: "failed"
-          }
-        );
-      });
-      return { success: false, status: "channels_invalid", errorCode: "AIRTABLE_CONTEXT_INVALID" };
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, "AIRTABLE_CONTEXT_INVALID", "Target channels does not contain Facebook", "failed");
+      return { errorStatus: { success: false, status: "channels_invalid", errorCode: "AIRTABLE_CONTEXT_INVALID" } };
     }
 
-    // Check master copy exists
     if (!fields.master_copy) {
       this.logger.warn("Post master copy is empty", { airtableRecordId });
-      await this.database.transaction(this.workspaceId, async (client) => {
-        await this.repository.markFailed(
-          client,
-          {
-            workspaceId: this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            errorCode: "AIRTABLE_CONTEXT_INVALID",
-            errorMessage: "Master copy is missing or empty",
-            status: "failed"
-          }
-        );
-      });
-      return { success: false, status: "master_copy_empty", errorCode: "AIRTABLE_CONTEXT_INVALID" };
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, "AIRTABLE_CONTEXT_INVALID", "Master copy is missing or empty", "failed");
+      return { errorStatus: { success: false, status: "master_copy_empty", errorCode: "AIRTABLE_CONTEXT_INVALID" } };
     }
 
-    // ──────────────────────────────────────────────
-    // 3. Load Notion Context (Optional & Hardened Allowlist)
-    // ──────────────────────────────────────────────
-    let notionBrief = null;
-    const notionContextRefs: Array<{
-      notion_brief_url: string;
-      load_status: "success" | "failed";
-      ai_ready: boolean;
-      fallback_source?: string;
-      error_code?: string;
-      error_message?: string;
-      error?: string;
-    }> = [];
+    return fields;
+  }
 
-    if (fields.campaign_id && fields.campaign_id.length > 0) {
-      const campaignId = fields.campaign_id[0];
-      try {
-        const campaign = await this.airtableClient.fetchCampaignRecord(campaignId);
-        
-        if (campaign.notion_brief_url) {
-          try {
-            this.logger.info("Loading Notion campaign brief context", { notion_url: campaign.notion_brief_url });
-            // Retrieve notion token from env
-            const token = process.env.NOTION_TOKEN;
-            notionBrief = await this.notionClient.fetchNotionBrief(campaign.notion_brief_url, token);
-            
-            notionContextRefs.push({
-              notion_brief_url: campaign.notion_brief_url,
-              load_status: "success",
-              ai_ready: true
-            });
-          } catch (notionErr: unknown) {
-            this.logger.warn("Notion brief fetch failed, attempting fallback", {
-              notion_url: campaign.notion_brief_url,
-              error: String(notionErr)
-            });
-
-            const isSsrf = notionErr instanceof NotionSsrfError;
-            const errCode = isSsrf ? "NOTION_NOT_ALLOWLISTED" : "CONTEXT_UNREACHABLE";
-
-            notionContextRefs.push({
-              notion_brief_url: campaign.notion_brief_url,
-              load_status: "failed",
-              ai_ready: false,
-              fallback_source: "campaign_objective",
-              error_code: errCode,
-              error_message: String(redact(String(notionErr)))
-            });
-
-            // Fallback: If campaign has objective, use it, otherwise throw/fail
-            if (campaign.campaign_objective) {
-              notionBrief = {
-                brief_summary: campaign.campaign_objective,
-                brand_voice: "Professional, engaging, modern",
-                do_terms: [],
-                avoid_terms: [],
-                legal_notes: ""
-              };
-            } else {
-              throw notionErr; // Trigger failure state if no fallback objective
-            }
-          }
-        }
-      } catch (campaignErr) {
-        this.logger.error("Failed to load campaign brief details", { campaignId, error: String(campaignErr) });
-        // Notion loading failed completely with no fallback objective available
-        await this.database.transaction(this.workspaceId, async (client) => {
-          await this.repository.markFailed(
-            client,
-            {
-              workspaceId: this.workspaceId,
-              workflowRunId,
-              aiGenerationRunId,
-              errorCode: "CONTEXT_UNREACHABLE",
-              errorMessage: `Notion campaign brief context loading failed completely: ${String(redact(String(campaignErr)))}`,
-              status: "needs_manual_review"
-            }
-          );
-        });
-        return { success: false, status: "notion_context_failed", errorCode: "CONTEXT_UNREACHABLE" };
-      }
+  private async loadNotionContext(fields: AirtableFields, workflowRunId: string, aiGenerationRunId: string): Promise<{ notionBrief: NotionBrief | null, notionContextRefs: Array<Record<string, unknown>> } | { errorStatus: AiWorkerResult }> {
+    if (!fields.campaign_id || fields.campaign_id.length === 0) {
+      return { notionBrief: null, notionContextRefs: [] };
     }
 
-    // ──────────────────────────────────────────────
-    // 4. Construct Prompt
-    // ──────────────────────────────────────────────
-    const promptTemplate = getPromptTemplate(this.promptVersion);
-    const promptContext = {
-      masterCopy: fields.master_copy,
+    const campaignId = fields.campaign_id[0];
+    try {
+      const campaign = await this.airtableClient.fetchCampaignRecord(campaignId);
+      return await this.processCampaignBrief(campaign);
+    } catch (campaignErr) {
+      this.logger.error("Failed to load campaign brief details", { campaignId, error: String(campaignErr) });
+      const isSsrf = campaignErr instanceof NotionSsrfError;
+      const errorCode = isSsrf ? "NOTION_NOT_ALLOWLISTED" : "CONTEXT_UNREACHABLE";
+      const status = isSsrf ? "failed" : "needs_manual_review";
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, errorCode, `Notion context failed: ${String(redact(String(campaignErr)))}`.substring(0, 255), status);
+      return { errorStatus: { success: false, status: "notion_context_failed", errorCode } };
+    }
+  }
+
+  private async processCampaignBrief(campaign: { notion_brief_url?: string; campaign_objective?: string }): Promise<{ notionBrief: NotionBrief | null, notionContextRefs: Array<Record<string, unknown>> }> {
+    if (!campaign.notion_brief_url) {
+      return { notionBrief: null, notionContextRefs: [] };
+    }
+
+    try {
+      this.logger.info("Loading Notion campaign brief context", { notion_url: campaign.notion_brief_url });
+      const token = process.env.NOTION_TOKEN;
+      const notionBrief = await this.notionClient.fetchNotionBrief(campaign.notion_brief_url, token);
+      return {
+        notionBrief,
+        notionContextRefs: [{ notion_brief_url: campaign.notion_brief_url, load_status: "success", ai_ready: true }]
+      };
+    } catch (notionErr: unknown) {
+      return this.handleNotionFallback(campaign, notionErr);
+    }
+  }
+
+  private handleNotionFallback(campaign: { notion_brief_url?: string; campaign_objective?: string }, notionErr: unknown): { notionBrief: NotionBrief | null, notionContextRefs: Array<Record<string, unknown>> } {
+    this.logger.warn("Notion brief fetch failed, attempting fallback", { notion_url: campaign.notion_brief_url, error: String(notionErr) });
+    const isSsrf = notionErr instanceof NotionSsrfError;
+    
+    if (isSsrf) {
+      // Hard fail for SSRF, no silent fallback allowed
+      throw notionErr;
+    }
+    
+    const contextRef = { 
+      notion_brief_url: campaign.notion_brief_url, 
+      load_status: "fallback", 
+      ai_ready: false, 
+      fallback_source: "campaign_objective", 
+      error_code: "CONTEXT_UNREACHABLE", 
+      error_message: String(redact(String(notionErr))).substring(0, 255)
+    };
+
+    if (campaign.campaign_objective) {
+      const notionBrief = { brief_summary: campaign.campaign_objective, brand_voice: "Professional, engaging, modern", do_terms: [], avoid_terms: [], legal_notes: "" };
+      return { notionBrief, notionContextRefs: [contextRef] };
+    } else {
+      throw notionErr;
+    }
+  }
+
+  private buildPromptContext(fields: AirtableFields, notionBrief: NotionBrief | null): PromptContext {
+    return {
+      masterCopy: fields.master_copy || "",
       ctaUrl: fields.cta_url,
       campaignObjective: notionBrief?.brief_summary || "General brand awareness",
       briefSummary: notionBrief?.brief_summary || null,
@@ -313,189 +291,106 @@ export class AiComposerWorker {
       avoidTerms: notionBrief?.avoid_terms || null,
       legalNotes: notionBrief?.legal_notes || null
     };
+  }
 
+  private preparePrompts(promptContext: PromptContext, aiGenerationRunId: string, notionContextRefs: Array<Record<string, unknown>>) {
+    const promptTemplate = getPromptTemplate(this.promptVersion);
     const systemPrompt = promptTemplate.systemPrompt;
     const userPrompt = promptTemplate.userPrompt(promptContext);
 
-    // Update input snapshot and notion refs in database
-    await this.database.query(
-      `UPDATE ai_generation_runs 
-       SET input_snapshot = $3::jsonb, notion_context_refs = $4::jsonb 
-       WHERE id = $1 AND workspace_id = $2`,
-      [aiGenerationRunId, this.workspaceId, JSON.stringify(promptContext), JSON.stringify(notionContextRefs)]
+    // Enforce strict schema before persisting to Ledger
+    const validatedContextRefs = z.array(NotionContextRefSchema).parse(notionContextRefs);
+
+    // Run async, no await needed for return
+    void this.database.query(
+      `UPDATE ai_generation_runs SET input_snapshot = $3::jsonb, notion_context_refs = $4::jsonb WHERE id = $1 AND workspace_id = $2`,
+      [aiGenerationRunId, this.workspaceId, JSON.stringify(promptContext), JSON.stringify(validatedContextRefs)]
     );
 
-    // ──────────────────────────────────────────────
-    // 5. Call AI Provider (Adapter with Retries)
-    // ──────────────────────────────────────────────
-    let generatedText: string;
+    return { systemPrompt, userPrompt };
+  }
+
+  private async callAiProvider(systemPrompt: string, userPrompt: string, workflowRunId: string, aiGenerationRunId: string): Promise<{ generatedText: string } | { errorStatus: AiWorkerResult }> {
     try {
       const scenario = (process.env.MOCK_LLM_SCENARIO || "happy") as LlmGenerateOptions["mockScenario"];
-      generatedText = await this.llmAdapter.generateContent(systemPrompt, userPrompt, {
-        timeoutMs: 30_000,
-        mockScenario: scenario
-      });
+      const generatedText = await this.llmAdapter.generateContent(systemPrompt, userPrompt, { timeoutMs: 30_000, mockScenario: scenario });
+      return { generatedText };
     } catch (err: unknown) {
       this.logger.error("LLM Provider call failed", { error: String(err) });
       const isRateLimit = err instanceof LlmRateLimitError;
       const isTimeout = err instanceof LlmTimeoutError;
 
-      const errCode = isRateLimit 
-        ? "PROVIDER_RATE_LIMIT" 
-        : isTimeout 
-          ? "PROVIDER_TIMEOUT" 
-          : "INVALID_MODEL_CONFIG";
-
+      let errCode: AiErrorCode;
+      if (isRateLimit) {
+        errCode = "PROVIDER_RATE_LIMIT";
+      } else if (isTimeout) {
+        errCode = "PROVIDER_TIMEOUT";
+      } else {
+        errCode = "INVALID_MODEL_CONFIG";
+      }
       const runStatus = (isRateLimit || isTimeout) ? "retryable_failed" : "failed";
 
-      await this.database.transaction(this.workspaceId, async (client) => {
-        await this.repository.markFailed(
-          client,
-          {
-            workspaceId: this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            errorCode: errCode,
-            errorMessage: `LLM provider error: ${String(redact(String(err)))}`,
-            status: runStatus
-          }
-        );
-      });
-
-      return { success: false, status: "llm_failed", errorCode: errCode };
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, errCode, `LLM provider error: ${String(redact(String(err)))}`, runStatus);
+      return { errorStatus: { success: false, status: "llm_failed", errorCode: errCode } };
     }
+  }
 
-    // ──────────────────────────────────────────────
-    // 6. Validate Structured Output
-    // ──────────────────────────────────────────────
-    let validatedOutput;
+  private async validateAiOutput(generatedText: string, ctaUrl: string | undefined, airtableRecordId: string, workflowRunId: string, aiGenerationRunId: string): Promise<{ output: ValidatedOutput } | { errorStatus: AiWorkerResult }> {
     try {
-      validatedOutput = validateStructuredOutput(generatedText, fields.cta_url);
+      const validatedOutput = validateStructuredOutput(generatedText, ctaUrl);
+      return { output: validatedOutput };
     } catch (err: unknown) {
       if (err instanceof ValidationError) {
-        this.logger.warn("Structured output validation failed", {
-          errorCode: err.errorCode,
-          message: err.message
-        });
-
-        const status = err.errorCode === "PROMPT_INJECTION_DETECTED" ? "failed" : "needs_manual_review";
-        const outputSnapshot = err.errorCode === "PROMPT_INJECTION_DETECTED"
-          ? {
-              rawOutputHash: createHash("sha256").update(generatedText).digest("hex"),
-              sanitizedFailure: true as const,
-              errorCode: err.errorCode
-            }
-          : undefined;
-
-        await this.database.transaction(this.workspaceId, async (client) => {
-          await this.repository.markFailed(
-            client,
-            {
-              workspaceId: this.workspaceId,
-              workflowRunId,
-              aiGenerationRunId,
-              errorCode: err.errorCode,
-              errorMessage: err.message,
-              status,
-              outputSnapshot
-            }
-          );
-        });
-
-        // Sync failure status to Airtable
-        try {
-          await this.airtableClient.updateVariantDraft(
-            airtableRecordId,
-            "N/A",
-            {
-              variant_draft: "",
-              variant_hashtags: [],
-              ai_generation_status: "Review Blocked",
-              ai_review_notes: `AI validation failed: [${err.errorCode}] ${String(redact(err.message))}`
-            },
-            this.airtableFieldMap
-          );
-        } catch (airtableErr) {
-          this.logger.error("Failed to sync validation error to Airtable", { airtableErr });
-        }
-
-        return { success: false, status: "validation_failed", errorCode: err.errorCode };
+        return this.handleValidationError(err, generatedText, airtableRecordId, workflowRunId, aiGenerationRunId);
       }
 
-      // Unexpected error during validation
-      await this.database.transaction(this.workspaceId, async (client) => {
-        await this.repository.markFailed(
-          client,
-          {
-            workspaceId: this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            errorCode: "SCHEMA_PARSING_FAILED",
-            errorMessage: `Unexpected validation error: ${String(redact(String(err)))}`,
-            status: "needs_manual_review"
-          }
-        );
-      });
-      return { success: false, status: "validation_failed", errorCode: "SCHEMA_PARSING_FAILED" };
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, "SCHEMA_PARSING_FAILED", `Unexpected validation error: ${String(redact(String(err)))}`, "needs_manual_review");
+      return { errorStatus: { success: false, status: "validation_failed", errorCode: "SCHEMA_PARSING_FAILED" } };
+    }
+  }
+
+  private async handleValidationError(err: ValidationError, generatedText: string, airtableRecordId: string, workflowRunId: string, aiGenerationRunId: string): Promise<{ errorStatus: AiWorkerResult }> {
+    this.logger.warn("Structured output validation failed", { errorCode: err.errorCode, message: err.message });
+    const isInjection = err.errorCode === "PROMPT_INJECTION_DETECTED";
+    const status = isInjection ? "failed" : "needs_manual_review";
+    const outputSnapshot = isInjection ? { rawOutputHash: createHash("sha256").update(generatedText).digest("hex"), sanitizedFailure: true as const, errorCode: err.errorCode as "PROMPT_INJECTION_DETECTED" } : undefined;
+    
+    await this.database.transaction(this.workspaceId, async (client) => {
+      await this.repository.markFailed(client, { workspaceId: this.workspaceId, workflowRunId, aiGenerationRunId, errorCode: err.errorCode, errorMessage: err.message, status, outputSnapshot });
+    });
+
+    try {
+      await this.airtableClient.updateVariantDraft(airtableRecordId, "N/A", { variant_draft: "", variant_hashtags: [], ai_generation_status: "Review Blocked", ai_review_notes: `AI validation failed: [${err.errorCode}] ${String(redact(err.message))}` }, this.airtableFieldMap);
+    } catch (airtableErr) {
+      this.logger.error("Failed to sync validation error to Airtable", { airtableErr });
     }
 
-    // ──────────────────────────────────────────────
-    // 7. Persist Results & outbox (Transaction B)
-    // ──────────────────────────────────────────────
-    let variantId: string;
+    return { errorStatus: { success: false, status: "validation_failed", errorCode: err.errorCode } };
+  }
+
+  private async persistVariant(validatedOutput: ValidatedOutput, fields: AirtableFields, workflowRunId: string, aiGenerationRunId: string, airtableRecordId: string, approvedVersion: number, correlationId: string): Promise<{ variantId: string } | { errorStatus: AiWorkerResult }> {
     try {
-      variantId = await this.database.transaction(this.workspaceId, async (client) => {
-        return this.repository.markCompleted(
-          client,
-          {
-            workspaceId: this.workspaceId,
-            workflowRunId,
-            aiGenerationRunId,
-            airtableRecordId,
-            approvedVersion,
-            promptVersion: this.promptVersion,
-            output: validatedOutput,
-            correlationId,
-            postId: fields.post_id || airtableRecordId,
-            syncRetryNeeded: false
-          }
-        );
+      const variantId = await this.database.transaction(this.workspaceId, async (client) => {
+        return this.repository.markCompleted(client, { workspaceId: this.workspaceId, workflowRunId, aiGenerationRunId, airtableRecordId, campaignId: fields.campaign_id?.[0] || null, approvedVersion, promptVersion: this.promptVersion, output: validatedOutput, correlationId, postId: fields.post_id || airtableRecordId, syncRetryNeeded: false });
       });
+      return { variantId };
     } catch (err) {
       this.logger.error("Failed to persist variant and complete AI run in database", { error: String(err) });
-      return { success: false, status: "persistence_failed", errorMessage: String(err) };
+      return { errorStatus: { success: false, status: "persistence_failed", errorMessage: String(err) } };
     }
+  }
 
-    // ──────────────────────────────────────────────
-    // 8. Sync Variant Draft to Airtable (Out-of-Transaction)
-    // ──────────────────────────────────────────────
+  private async syncVariantToAirtable(validatedOutput: ValidatedOutput, airtableRecordId: string, variantId: string) {
     this.logger.info("Syncing generated AI variant to Airtable", { airtableRecordId, variantId });
     try {
       const latestPost = await this.airtableClient.getPostRecord(airtableRecordId);
       if (latestPost.fields.status !== "Approved") {
         throw new Error(`Airtable optimistic guard failed: status is ${latestPost.fields.status ?? "unknown"}`);
       }
-
-      await this.airtableClient.updateVariantDraft(
-        airtableRecordId,
-        variantId,
-        {
-          variant_draft: validatedOutput.body,
-          variant_hashtags: validatedOutput.hashtags,
-          variant_cta_url: validatedOutput.cta_url || null,
-          ai_generation_status: "Needs Review",
-          ai_review_notes: `AI Composer generated Facebook variant successfully using prompt version ${this.promptVersion}.`
-        },
-        this.airtableFieldMap
-      );
+      await this.airtableClient.updateVariantDraft(airtableRecordId, variantId, { variant_draft: validatedOutput.body, variant_hashtags: validatedOutput.hashtags, variant_cta_url: validatedOutput.cta_url || null, ai_generation_status: "Needs Review", ai_review_notes: `AI Composer generated Facebook variant successfully using prompt version ${this.promptVersion}.` }, this.airtableFieldMap);
       this.logger.info("Successfully synced variant to Airtable", { airtableRecordId });
     } catch (airtableErr) {
-      this.logger.error("Airtable variant sync failed. Setting sync_retry_needed = true in Ledger.", {
-        airtableRecordId,
-        error: String(airtableErr)
-      });
-
-      // Compensating Transaction: Mark sync_retry_needed = true
+      this.logger.error("Airtable variant sync failed. Setting sync_retry_needed = true in Ledger.", { airtableRecordId, error: String(airtableErr) });
       try {
         await this.database.transaction(this.workspaceId, async (client) => {
           await this.repository.updateVariantSyncStatus(client, this.workspaceId, variantId, true);
@@ -504,25 +399,27 @@ export class AiComposerWorker {
         this.logger.error("Failed to mark sync_retry_needed in Ledger!", { variantId, dbErr });
       }
     }
+  }
 
-    return { success: true, status: "completed", variantId };
+  private async markFailedInDb(workflowRunId: string, aiGenerationRunId: string, errorCode: AiErrorCode, errorMessage: string, status: "failed" | "retryable_failed" | "needs_manual_review") {
+    try {
+      await this.database.transaction(this.workspaceId, async (client) => {
+        await this.repository.markFailed(client, { workspaceId: this.workspaceId, workflowRunId, aiGenerationRunId, errorCode, errorMessage, status });
+      });
+    } catch (dbErr) {
+      this.logger.error("Failed to mark run as failed in DB", { workflowRunId, dbErr });
+    }
   }
 
   async processQueueMessage(message: AiComposerQueueMessage, messageId: string): Promise<AiQueueWorkerResult> {
     if (message.workspace_id !== this.workspaceId) {
-      this.logger.error("AI Composer queue message workspace mismatch", {
-        messageId,
-        message_workspace_id: message.workspace_id,
-        worker_workspace_id: this.workspaceId
-      });
+      this.logger.error("AI Composer queue message workspace mismatch", { messageId, message_workspace_id: message.workspace_id, worker_workspace_id: this.workspaceId });
       return { action: "nack_dlq", status: "workspace_mismatch" };
     }
 
     const result = await this.processWorkflowRun(message.workflow_run_id);
 
-    if (result.success) {
-      return { action: "ack", status: result.status };
-    }
+    if (result.success) return { action: "ack", status: result.status };
 
     if (result.status === "llm_failed" && (result.errorCode === "PROVIDER_RATE_LIMIT" || result.errorCode === "PROVIDER_TIMEOUT")) {
       return { action: "ack", status: "retryable_failed", errorCode: result.errorCode };

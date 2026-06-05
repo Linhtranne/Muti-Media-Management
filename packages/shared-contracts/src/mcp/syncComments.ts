@@ -47,7 +47,7 @@ export const SyncCommentsResultSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   const forbidden = ["access_token", "raw_response", "raw_payload"];
   for (const field of forbidden) {
-    if (Object.hasOwn(value as any, field)) {
+    if (Object.hasOwn(value, field)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Forbidden field in result: ${field}`,

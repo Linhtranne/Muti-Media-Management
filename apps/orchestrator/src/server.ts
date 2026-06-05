@@ -24,6 +24,7 @@ import { SlackCommandParser } from "./services/slackCommandParser.js";
 import { SlackCommandRepository } from "./ledger/slackCommandRepository.js";
 import { createSlackCommandsRouter } from "./routes/slackCommands.js";
 import { createFacebookAdminRouter } from "./routes/facebookAdmin.js";
+import { createReportsRouter } from "./routes/reports.js";
 import { SlackPostApprovalWorker } from "./workers/slackPostApprovalWorker.js";
 import { createSlackCommandRabbitmqConsumer } from "./queue/slackCommandRabbitmqConsumer.js";
 import { CommentActionRepository } from "./ledger/commentActionRepository.js";
@@ -34,9 +35,15 @@ import { CommentSyncWorkerRepository } from "./ledger/commentSyncWorkerRepositor
 import { FacebookCommentSyncWorker } from "./workers/facebookCommentSyncWorker.js";
 import { createFacebookCommentSyncIngestConsumer } from "./queue/facebookCommentSyncIngestConsumer.js";
 import { createFacebookCommentSyncRequestConsumer } from "./queue/facebookCommentSyncRequestConsumer.js";
+import { createRabbitMqMonitor } from "./queue/rabbitmqMonitor.js";
 import { CommentSyncSchedulerRepository } from "./ledger/commentSyncSchedulerRepository.js";
 import { CommentSyncScheduler } from "./scheduler/commentSyncScheduler.js";
 import { ChannelAccountAdminRepository } from "./ledger/channelAccountAdminRepository.js";
+import { DirectMessageRepository } from "./ledger/directMessageRepository.js";
+import { DirectMessageIngestWorker } from "./workers/directMessageIngestWorker.js";
+import { DirectMessageReplyWorker } from "./workers/directMessageReplyWorker.js";
+import { createDirectMessageIngestRabbitmqConsumer } from "./queue/directMessageIngestRabbitmqConsumer.js";
+import { createDirectMessageReplyRabbitmqConsumer } from "./queue/directMessageReplyRabbitmqConsumer.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,12 +51,12 @@ export async function createServer() {
   const env = loadEnv();
   const logger = new Logger(env.LOG_LEVEL);
   const database = createDatabase(env.DATABASE_URL);
-  const queuePublisher = await createRabbitMqPublisher(env.RABBITMQ_URL);
+  const queuePublisher = await createRabbitMqPublisher(env.RABBITMQ_URL, database, logger);
   const ingestor = new AirtableWebhookIngestor(database, queuePublisher, logger, env.WORKSPACE_ID);
 
   const airtableClient = createAirtableClient(env.AIRTABLE_API_KEY, env.AIRTABLE_BASE_ID);
   const worker = new ApprovedPostWorker(database, airtableClient, logger, env.WORKSPACE_ID, queuePublisher);
-  const consumer = await createRabbitMqConsumer(env.RABBITMQ_URL, worker, logger);
+  const consumer = await createRabbitMqConsumer(env.RABBITMQ_URL, worker, logger, database);
 
   // AI Composer integration
   const llmAdapter = new GeminiLlmAdapter(env.GEMINI_API_KEY || "mock-key", env.GEMINI_MODEL);
@@ -100,13 +107,52 @@ export async function createServer() {
   const channelAccountAdminRepo = new ChannelAccountAdminRepository();
   const commentRiskClassifier = new CommentRiskClassifier();
   const commentSyncWorkerRepo = new CommentSyncWorkerRepository();
-  const facebookCommentSyncWorker = new FacebookCommentSyncWorker(database.getPool(), commentSyncWorkerRepo, commentRiskClassifier, queuePublisher);
+  const facebookCommentSyncWorker = new FacebookCommentSyncWorker(database.getPool(), commentSyncWorkerRepo, queuePublisher, {
+    inboxChannelId: env.SLACK_INBOX_CHANNEL_ID,
+    crisisChannelId: env.SLACK_CRISIS_CHANNEL_ID
+  });
   
   const facebookCommentIngestConsumer = await createFacebookCommentSyncIngestConsumer(env.RABBITMQ_URL, facebookCommentSyncWorker, logger);
-  const facebookCommentSyncRequestConsumer = await createFacebookCommentSyncRequestConsumer(env.RABBITMQ_URL, facebookMcpClient, database.getPool(), channelAccountAdminRepo, queuePublisher, logger);
+  const facebookCommentSyncRequestConsumer = await createFacebookCommentSyncRequestConsumer(env.RABBITMQ_URL, facebookMcpClient, database.getPool(), channelAccountAdminRepo, queuePublisher, commentRiskClassifier, logger);
 
   const commentSyncSchedulerRepo = new CommentSyncSchedulerRepository();
   const commentSyncScheduler = new CommentSyncScheduler(database.getPool(), commentSyncSchedulerRepo, queuePublisher, logger);
+  const rabbitmqMonitor = createRabbitMqMonitor(env.RABBITMQ_URL, logger);
+
+  // US-015 Unified Direct Message Inbox
+  const directMessageRepository = new DirectMessageRepository();
+  const directMessageIngestWorker = new DirectMessageIngestWorker(
+    database,
+    directMessageRepository,
+    queuePublisher,
+    facebookMcpClient,
+    logger,
+    env.WORKSPACE_ID,
+    { inboxChannelId: env.SLACK_INBOX_CHANNEL_ID },
+    { dmSlaHours: env.DM_SLA_HOURS }
+  );
+  const directMessageReplyWorker = new DirectMessageReplyWorker(
+    database,
+    directMessageRepository,
+    queuePublisher,
+    facebookMcpClient,
+    logger,
+    env.WORKSPACE_ID,
+    { inboxChannelId: env.SLACK_INBOX_CHANNEL_ID }
+  );
+
+  const directMessageIngestConsumer = await createDirectMessageIngestRabbitmqConsumer(
+    env.RABBITMQ_URL,
+    directMessageIngestWorker,
+    logger,
+    env.WORKSPACE_ID
+  );
+  const directMessageReplyConsumer = await createDirectMessageReplyRabbitmqConsumer(
+    env.RABBITMQ_URL,
+    directMessageReplyWorker,
+    logger,
+    env.WORKSPACE_ID
+  );
 
   const app = express();
   app.disable("x-powered-by");
@@ -118,6 +164,7 @@ export async function createServer() {
     parser: slackParser,
     repository: slackRepository,
     commentActionRepository,
+    directMessageRepository,
     publisher: queuePublisher,
     database,
     logger,
@@ -138,6 +185,12 @@ export async function createServer() {
     env.FACEBOOK_REDIRECT_URI
   ));
 
+  app.use("/api/v1/reports", createReportsRouter(
+    database,
+    logger,
+    env.WORKSPACE_ID
+  ));
+
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
   });
@@ -145,7 +198,8 @@ export async function createServer() {
   return { 
     app, env, logger, database, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
     mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
-    facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler
+    facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler, rabbitmqMonitor,
+    directMessageIngestConsumer, directMessageReplyConsumer
   };
 }
 
@@ -153,7 +207,8 @@ if (process.env.NODE_ENV !== "test") {
   const { 
     app, env, logger, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
     mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
-    facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler
+    facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler, rabbitmqMonitor,
+    directMessageIngestConsumer, directMessageReplyConsumer
   } = await createServer();
 
   await consumer.start().catch((err) => {
@@ -192,6 +247,18 @@ if (process.env.NODE_ENV !== "test") {
     logger.error("Failed to start Facebook Comment Sync Request consumer", { error: String(err) });
   });
 
+  if (env.DM_INBOX_ENABLED === "true") {
+    await directMessageIngestConsumer.start().catch((err: any) => {
+      logger.error("Failed to start Direct Message Ingest consumer", { error: String(err) });
+    });
+
+    await directMessageReplyConsumer.start().catch((err: any) => {
+      logger.error("Failed to start Direct Message Reply consumer", { error: String(err) });
+    });
+  } else {
+    logger.info("DM Inbox consumers disabled (DM_INBOX_ENABLED != true)");
+  }
+
   // Start the scheduler loop
   let schedulerInterval: NodeJS.Timeout | null = null;
   if (env.US006_EXECUTION_ENABLED === 'true') {
@@ -204,6 +271,10 @@ if (process.env.NODE_ENV !== "test") {
   }
 
   commentSyncScheduler.start();
+  
+  await rabbitmqMonitor.start(60000).catch(err => {
+    logger.error("Failed to start RabbitMQ monitor", { error: String(err) });
+  });
 
   const server = app.listen(env.PORT, () => {
     logger.info("Orchestrator listening", { port: env.PORT });
@@ -225,7 +296,10 @@ if (process.env.NODE_ENV !== "test") {
     await slackCommentActionConsumer.stop();
     await facebookCommentIngestConsumer.stop();
     await facebookCommentSyncRequestConsumer.stop();
+    await directMessageIngestConsumer.stop();
+    await directMessageReplyConsumer.stop();
     commentSyncScheduler.stop();
+    await rabbitmqMonitor.stop();
     if (schedulerInterval) {
       clearInterval(schedulerInterval);
     }

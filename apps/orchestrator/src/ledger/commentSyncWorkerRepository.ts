@@ -13,7 +13,7 @@ export class CommentSyncWorkerRepository {
       publish_job_id: string;
       airtable_record_id?: string | null;
       external_post_id: string;
-      author_ref: any;
+      author_ref: Record<string, unknown>;
       interaction_type: string;
       risk_code: string;
       created_at_platform: string;
@@ -25,8 +25,10 @@ export class CommentSyncWorkerRepository {
         workspace_id, platform, external_id,
         publish_job_id, airtable_record_id, external_post_id,
         author_ref, interaction_type, risk_code,
-        created_at_platform, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        created_at_platform, created_at, updated_at, campaign_id
+      )
+      SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), campaign_id
+      FROM publish_jobs WHERE id = $4
       ON CONFLICT (workspace_id, platform, external_id) DO UPDATE SET
         author_ref = EXCLUDED.author_ref,
         risk_code = EXCLUDED.risk_code,
@@ -93,22 +95,39 @@ export class CommentSyncWorkerRepository {
     client: pg.PoolClient,
     interactionId: string,
     workspaceId: string,
-    channelId: string,
+    channelId: string | null,
     channelType: "crisis" | "inbox",
-    alertType: "comment_risk" | "comment_normal"
+    alertType: "comment_risk" | "comment_normal",
+    status: "pending" | "pending_config" | "sent" | "failed" = "pending"
   ): Promise<boolean> {
     const res = await client.query(
       `
       INSERT INTO slack_comment_alerts (
         interaction_id, workspace_id, channel_id, channel_type, alert_type, status, created_at
-      ) VALUES ($1, $2, $3, $4, $5, 'sent', NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
       ON CONFLICT (interaction_id) DO NOTHING
       RETURNING id
       `,
-      [interactionId, workspaceId, channelId, channelType, alertType]
+      [interactionId, workspaceId, channelId, channelType, alertType, status]
     );
 
     return (res.rowCount ?? 0) > 0;
+  }
+
+  async updateSlackAlertStatus(
+    client: pg.PoolClient,
+    interactionId: string,
+    workspaceId: string,
+    status: "sent" | "failed"
+  ): Promise<void> {
+    await client.query(
+      `
+      UPDATE slack_comment_alerts
+      SET status = $3
+      WHERE interaction_id = $1 AND workspace_id = $2
+      `,
+      [interactionId, workspaceId, status]
+    );
   }
 
   /**

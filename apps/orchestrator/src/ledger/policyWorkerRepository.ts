@@ -17,6 +17,7 @@ export interface PolicyContext {
     cta_url: string | null;
     approval_status: string;
     policy_status: string;
+    campaign_id: string | null;
   };
   workflow: {
     id: string;
@@ -72,7 +73,7 @@ export class PolicyWorkerRepository {
 
     const variantResult = await client.query<PolicyContext["variant"]>(
       `SELECT id, workspace_id, workflow_run_id, ai_generation_run_id, airtable_record_id,
-              post_id, body, hashtags, cta_url, approval_status, policy_status
+              post_id, campaign_id, body, hashtags, cta_url, approval_status, policy_status
        FROM content_variants
        WHERE id = $1 AND workspace_id = $2
        FOR UPDATE`,
@@ -226,10 +227,10 @@ export class PolicyWorkerRepository {
 
     await client.query(
       `INSERT INTO publish_jobs (
-        id, workspace_id, post_id, variant_id, channel_account_id, scheduled_at, status, idempotency_key
-       ) VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7)
+        id, workspace_id, post_id, variant_id, channel_account_id, scheduled_at, status, idempotency_key, campaign_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $8)
        ON CONFLICT (idempotency_key) DO NOTHING`,
-      [jobId, workspaceId, context.variant.post_id, context.variant.id, context.channelAccount.id, scheduledAt, jobIdempotencyKey]
+      [jobId, workspaceId, context.variant.post_id, context.variant.id, context.channelAccount.id, scheduledAt, jobIdempotencyKey, context.variant.campaign_id]
     );
 
     const eventId = randomUUID();

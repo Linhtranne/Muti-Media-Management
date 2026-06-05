@@ -25,6 +25,10 @@ describe("replyComment", () => {
     assert.strictEqual((graphClient.postComment as any).mock.calls.length, 1);
     const args = (graphClient.postComment as any).mock.calls[0].arguments;
     assert.strictEqual(args[1], "test-token");
+
+    // Ensure the token resolution follows the deterministic env mapping
+    assert.strictEqual((secretStore.resolveSecret as any).mock.calls.length, 1);
+    assert.strictEqual((secretStore.resolveSecret as any).mock.calls[0].arguments[0], "env:FACEBOOK_CHANNEL_CHAN_1_TOKEN");
   });
 
   it("should sanitize credentials on graph error", async () => {

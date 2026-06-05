@@ -12,7 +12,7 @@ export async function getRateLimitStatusHandler(
   // Resolve secret
   await secretStore.resolveSecret(input.secretRef);
 
-  const limitToday = parseInt(process.env.MAX_DAILY_POSTS_PER_PAGE || "25", 10);
+  const limitToday = Number.parseInt(process.env.MAX_DAILY_POSTS_PER_PAGE || "25", 10);
   
   // For MVP, we don't have a database tracking in the MCP server, 
   // so we just return the max and assume Orchestrator's Ledger handles the current count.

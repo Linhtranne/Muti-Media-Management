@@ -6,7 +6,12 @@
 **Status:** Completed
 
 ## Summary
-Successfully implemented US-009 to handle `/reply_comment` and `/escalate` slash commands via Slack. The feature involves DB schema migration, shared contracts, Slack command parsing and routing in the orchestrator, RabbitMQ publishing/consuming, and delegating the actual reply execution to the Facebook MCP server.
+Successfully implemented US-009 to handle `/reply_comment` and `/escalate` slash commands via Slack. The feature involves DB schema migration, shared contracts, Slack command parsing and routing in the orchestrator, RabbitMQ publishing/consuming, and delegating the actual reply execution to the Facebook MCP server. 
+
+Hardened for production readiness (2026-06-03):
+- Replaced insecure token resolution with deterministic env var mapping inside the MCP server.
+- Fixed duplicate escalation risk by moving Slack alerts post-Ledger commit.
+- Corrected channel account resolution logic to be deterministic based on interaction relationships instead of using a `LIMIT 1` approach.
 
 ## What Was Done
 - [x] Item 1: Implemented DB migration `0009_us009_slack_reply_escalate_comment.sql` extending enum `interactions_status` and adding `comment_action_events` table with RLS.
@@ -19,7 +24,9 @@ Successfully implemented US-009 to handle `/reply_comment` and `/escalate` slash
 - [x] Item 8: Added FL-010 to `05_Function_Flow_Logic_Register.md`.
 - [x] Item 9: Fixed TypeScript and typing errors.
 - [x] Item 10: Fixed `slackCommandsRoute.test.ts` and successfully ran `npm test` verifying 230 tests.
-
+- [x] Item 11: Hardened `replyComment.ts` (Facebook MCP) to deterministically resolve credentials internally (`FACEBOOK_CHANNEL_<SANITIZED_ID>_TOKEN`).
+- [x] Item 12: Hardened `SlackCommentActionWorker` to ensure Slack alerts happen *after* successful Ledger commit, mitigating duplicate state risks.
+- [x] Item 13: Implemented deterministic `channel_account_id` resolution in `CommentActionRepository` by querying `publish_jobs` and parsing `external_post_id`.
 ## How It Was Done
 ### Approach
 We extended the existing Slack command architecture to support the new commands. By sharing the parsing and API routing flow, we could effectively branch into a separate repository (`CommentActionRepository`) and event loop (`slackCommentActionRabbitmqConsumer` -> `SlackCommentActionWorker`) specifically tailored for interaction management. We resolved type issues with a unified parser interface using union types and successfully ran all tests to ensure regressions weren't introduced.
@@ -56,11 +63,16 @@ This allows managers and support staff to reply to and escalate Facebook comment
 |:---|:---|:---|
 | Union type in parser | Cleanly distinguish `/approve_post` args (`postId`) vs `/reply_comment` args (`interactionId`). | Keep fields optional and unstructured, rejected due to poor typing. |
 | Separate `commentActionRepository` | `slackCommandRepository` was heavily tailored for Posts. | Refactoring `slackCommandRepository` to handle interactions, rejected due to risk of regression. |
+| Deterministic Channel Resolution | Using interaction relationships avoids posting comments on behalf of the wrong page in a multi-page setup. | Relying on `LIMIT 1` active channel, rejected due to production blocker/wrong page risks. |
+| Post-Commit Slack Alerting | Prevents duplicate alerts and inconsistent state if Ledger commit fails. | Pre-commit alerting, rejected because it caused duplicate state risks. |
 
 ## Verification
-- [x] Tests passed (230/230, including US-009 specific cases for parser, worker, consumer, and MCP contracts)
+- [x] Tests passed: 266/266 tests passing (including root workspace `npm test`).
+- [x] Compilation: `npm run build` succeeds cleanly.
+- [x] Linting: `npm run lint` / `npm run lint:eslint` pass.
 - [x] Docs updated
-- [x] No secrets exposed (MCP errors sanitized, `secretRef` omitted from queue message)
+- [x] No secrets exposed
+- [x] Acceptance criteria met: All Edge Cases & Hardening ACs for US-009
 - [x] Acceptance criteria met: Reply and Escalate commands function, queue topology followed, RLS implemented.
 
 ## Open Items / Next Steps

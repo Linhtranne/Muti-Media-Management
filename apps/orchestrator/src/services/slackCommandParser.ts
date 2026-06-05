@@ -19,6 +19,12 @@ export type ParsedSlackCommand =
     }
   | {
       error: false;
+      action: "reply_dm";
+      conversationId: string;
+      message: string;
+    }
+  | {
+      error: false;
       action: "escalate";
       interactionId: string;
       reason: string | null;
@@ -41,6 +47,7 @@ export class SlackCommandParser {
       trimmedCommand !== "/approve_post" &&
       trimmedCommand !== "/reject_post" &&
       trimmedCommand !== "/reply_comment" &&
+      trimmedCommand !== "/reply_dm" &&
       trimmedCommand !== "/escalate"
     ) {
       return { error: true, errorCode: "UNKNOWN_COMMAND", message: "Unknown command" };
@@ -49,6 +56,8 @@ export class SlackCommandParser {
     if (!trimmedText) {
       if (trimmedCommand === "/approve_post" || trimmedCommand === "/reject_post") {
         return { error: true, errorCode: "MISSING_POST_ID", message: "Post ID is required" };
+      } else if (trimmedCommand === "/reply_dm") {
+        return { error: true, errorCode: "MISSING_CONVERSATION_ID", message: "Conversation ID is required" };
       } else {
         return { error: true, errorCode: "MISSING_INTERACTION_ID", message: "Interaction ID is required" };
       }
@@ -106,6 +115,19 @@ export class SlackCommandParser {
         return { error: true, errorCode: "MESSAGE_TOO_LONG", message: "Message must be less than 2000 characters" };
       }
       return { error: false, action: "reply", interactionId, message: rawRemainingText };
+    }
+
+    if (trimmedCommand === "/reply_dm") {
+      if (!uuidRegex.test(rawId)) {
+        return { error: true, errorCode: "INVALID_UUID", message: "Conversation ID must be a valid UUID" };
+      }
+      if (!rawRemainingText) {
+        return { error: true, errorCode: "MISSING_MESSAGE", message: "Message is required for replying to a DM" };
+      }
+      if (rawRemainingText.length > 2000) {
+        return { error: true, errorCode: "MESSAGE_TOO_LONG", message: "Message must be less than 2000 characters" };
+      }
+      return { error: false, action: "reply_dm", conversationId: rawId, message: rawRemainingText };
     }
 
     if (trimmedCommand === "/escalate") {

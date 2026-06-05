@@ -13,15 +13,20 @@ import {
   SyncCommentsInputSchema,
   ExchangeCodePayloadSchema, 
   ConnectPagePayloadSchema, 
-  TokenHealthCheckPayloadSchema 
+  TokenHealthCheckPayloadSchema,
+  GetDirectMessageInputSchema,
+  SendDirectMessageInputSchema
 } from "@mediaops/shared-contracts";
-import { EnvSecretStore } from "./lib/secretStore.js";
+import { EnvSecretStore, type SecretStore } from "./lib/secretStore.js";
+import { DatabaseSecretStore } from "./lib/databaseSecretStore.js";
 import { validatePostHandler } from "./tools/validatePost.js";
 import { getRateLimitStatusHandler } from "./tools/getRateLimitStatus.js";
 import { publishPostHandler } from "./tools/publishPost.js";
 import { replyCommentHandler } from "./tools/replyComment.js";
 import { syncCommentsHandler } from "./tools/syncComments.js";
 import { exchangeCodeAndListPages, connectPage, healthCheckToken } from "./tools/facebookAuthTools.js";
+import { getDirectMessageHandler } from "./tools/getDirectMessage.js";
+import { sendDirectMessageHandler } from "./tools/sendDirectMessage.js";
 
 // Ensure environment variables are loaded if not run via a wrapper
 import * as dotenv from "dotenv";
@@ -39,7 +44,17 @@ const server = new Server(
   }
 );
 
-const secretStore = new EnvSecretStore();
+let secretStore: SecretStore;
+if (process.env.SECRET_STORE_PROVIDER === "memory") {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SECRET_STORE_PROVIDER=memory is not allowed in production");
+  }
+  secretStore = new EnvSecretStore();
+} else if (process.env.SECRET_STORE_PROVIDER === "database" || process.env.NODE_ENV === "production") {
+  secretStore = new DatabaseSecretStore();
+} else {
+  secretStore = new EnvSecretStore();
+}
 
 const VALIDATE_POST_TOOL: Tool = {
   name: "validatePost",
@@ -194,6 +209,35 @@ const HEALTH_CHECK_TOKEN_TOOL: Tool = {
   }
 };
 
+const GET_DIRECT_MESSAGE_TOOL: Tool = {
+  name: "get_direct_message",
+  description: "Fetches full body content and attachments of a direct message from Facebook",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel_account_id: { type: "string" },
+      external_thread_id: { type: "string" },
+      external_message_id: { type: "string" }
+    },
+    required: ["channel_account_id", "external_thread_id", "external_message_id"]
+  }
+};
+
+const SEND_DIRECT_MESSAGE_TOOL: Tool = {
+  name: "send_direct_message",
+  description: "Sends a direct message reply to a customer thread on Facebook Page",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel_account_id: { type: "string" },
+      external_thread_id: { type: "string" },
+      reply_body: { type: "string" },
+      idempotency_key: { type: "string" }
+    },
+    required: ["channel_account_id", "external_thread_id", "reply_body", "idempotency_key"]
+  }
+};
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -205,7 +249,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       GENERATE_OAUTH_URL_TOOL,
       EXCHANGE_CODE_TOOL,
       CONNECT_PAGE_TOOL,
-      HEALTH_CHECK_TOKEN_TOOL
+      HEALTH_CHECK_TOKEN_TOOL,
+      GET_DIRECT_MESSAGE_TOOL,
+      SEND_DIRECT_MESSAGE_TOOL
     ],
   };
 });
@@ -267,6 +313,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [
           { type: "text", text: JSON.stringify(result, null, 2) }
+        ]
+      };
+    }
+
+    if (request.params.name === "get_direct_message") {
+      const input = GetDirectMessageInputSchema.parse(request.params.arguments);
+      const result = await getDirectMessageHandler(input, secretStore);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2)
+          }
+        ]
+      };
+    }
+
+    if (request.params.name === "send_direct_message") {
+      const input = SendDirectMessageInputSchema.parse(request.params.arguments);
+      const result = await sendDirectMessageHandler(input, secretStore);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2)
+          }
         ]
       };
     }

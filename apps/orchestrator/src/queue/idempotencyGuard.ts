@@ -43,7 +43,7 @@ export interface IdempotencyCheckResult {
  * Returns `isDuplicate: true` if the event was already succeeded.
  */
 export async function checkIdempotency(
-  client: pg.PoolClient,
+  client: pg.PoolClient | pg.Pool,
   input: {
     eventId: string;
     idempotencyKey: string;
@@ -60,7 +60,7 @@ export async function checkIdempotency(
         event_id, idempotency_key, workspace_id, event_type, queue_name,
         status, attempts, last_error, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, 'processing', 1, NULL, NOW(), NOW())
-      ON CONFLICT (idempotency_key) DO NOTHING`,
+      ON CONFLICT (workspace_id, idempotency_key) DO NOTHING`,
       [
         input.eventId,
         input.idempotencyKey,
@@ -72,8 +72,8 @@ export async function checkIdempotency(
 
     // Fetch current state
     const result = await client.query<IdempotencyRecord>(
-      `SELECT * FROM event_bus_messages WHERE idempotency_key = $1`,
-      [input.idempotencyKey]
+      `SELECT * FROM event_bus_messages WHERE workspace_id = $1 AND idempotency_key = $2`,
+      [input.workspaceId, input.idempotencyKey]
     );
 
     if (result.rows.length === 0) {
@@ -118,7 +118,8 @@ export async function checkIdempotency(
  * Called after Ledger commit — safe to skip if table unavailable.
  */
 export async function markIdempotencySucceeded(
-  client: pg.PoolClient,
+  client: pg.PoolClient | pg.Pool,
+  workspaceId: string,
   idempotencyKey: string,
   logger: Logger
 ): Promise<void> {
@@ -126,11 +127,12 @@ export async function markIdempotencySucceeded(
     await client.query(
       `UPDATE event_bus_messages
        SET status = 'succeeded', updated_at = NOW()
-       WHERE idempotency_key = $1`,
-      [idempotencyKey]
+       WHERE workspace_id = $1 AND idempotency_key = $2`,
+      [workspaceId, idempotencyKey]
     );
   } catch (err) {
     logger.warn("Idempotency guard: could not mark succeeded (table may not exist)", {
+      workspaceId,
       idempotencyKey,
       error: err instanceof Error ? err.message : String(err)
     });
@@ -142,7 +144,8 @@ export async function markIdempotencySucceeded(
  * Called before DLQ routing.
  */
 export async function markIdempotencyFailed(
-  client: pg.PoolClient,
+  client: pg.PoolClient | pg.Pool,
+  workspaceId: string,
   idempotencyKey: string,
   lastError: string,
   logger: Logger
@@ -150,12 +153,13 @@ export async function markIdempotencyFailed(
   try {
     await client.query(
       `UPDATE event_bus_messages
-       SET status = 'failed', last_error = $2, attempts = attempts + 1, updated_at = NOW()
-       WHERE idempotency_key = $1`,
-      [idempotencyKey, lastError.slice(0, 1000)]
+       SET status = 'failed', last_error = $3, attempts = attempts + 1, updated_at = NOW()
+       WHERE workspace_id = $1 AND idempotency_key = $2`,
+      [workspaceId, idempotencyKey, lastError.slice(0, 1000)]
     );
   } catch (err) {
     logger.warn("Idempotency guard: could not mark failed (table may not exist)", {
+      workspaceId,
       idempotencyKey,
       error: err instanceof Error ? err.message : String(err)
     });

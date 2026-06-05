@@ -22,6 +22,7 @@ export interface MarkAiCompletedInput {
   workflowRunId: string;
   aiGenerationRunId: string;
   airtableRecordId: string;
+  campaignId: string | null;
   approvedVersion: number;
   promptVersion: string;
   output: StructuredComposerOutput;
@@ -211,8 +212,8 @@ export class AiWorkerRepository {
     await client.query(
       `INSERT INTO content_variants (
         id, workspace_id, ai_generation_run_id, workflow_run_id, airtable_record_id, 
-        post_id, platform, body, hashtags, cta_url, approval_status, policy_status, sync_retry_needed
-       ) VALUES ($1, $2, $3, $4, $5, $6, 'facebook', $7, $8::jsonb, $9, 'needs_review', 'pending_policy', $10)
+        post_id, platform, body, hashtags, cta_url, approval_status, policy_status, sync_retry_needed, campaign_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, 'facebook', $7, $8::jsonb, $9, 'needs_review', 'pending_policy', $10, $11)
        ON CONFLICT (workspace_id, workflow_run_id, platform)
        DO UPDATE SET 
          ai_generation_run_id = EXCLUDED.ai_generation_run_id,
@@ -220,6 +221,7 @@ export class AiWorkerRepository {
          hashtags = EXCLUDED.hashtags,
          cta_url = EXCLUDED.cta_url,
          sync_retry_needed = EXCLUDED.sync_retry_needed,
+         campaign_id = COALESCE(EXCLUDED.campaign_id, content_variants.campaign_id),
          created_at = NOW()`,
       [
         variantId,
@@ -231,7 +233,8 @@ export class AiWorkerRepository {
         input.output.body,
         JSON.stringify(input.output.hashtags),
         input.output.cta_url || null,
-        syncRetryNeeded
+        syncRetryNeeded,
+        input.campaignId
       ]
     );
 

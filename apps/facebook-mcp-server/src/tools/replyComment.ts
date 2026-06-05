@@ -62,12 +62,11 @@ export async function replyCommentHandler(
 ): Promise<ReplyCommentResult> {
   let accessToken: string;
   try {
-    // [PRODUCTION BLOCKER]: Token resolution should be implemented here or fetched via channelAccountId.
-    // For now we assume a mock mechanism or fallback.
+    const sanitizedId = input.channelAccountId.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
     const mockAccessToken = process.env.MOCK_ACCESS_TOKEN;
     accessToken = mockAccessToken && mockAccessToken.length > 0
       ? mockAccessToken
-      : await secretStore.resolveSecret(`channels/${input.channelAccountId}/token`);
+      : await secretStore.resolveSecret(`env:FACEBOOK_CHANNEL_${sanitizedId}_TOKEN`);
   } catch {
     return { success: false, error: `Failed to resolve credentials.` };
   }

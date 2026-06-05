@@ -21,7 +21,7 @@ export const CommentSyncRequestedEventSchema = z.object({
   created_at:           z.string().datetime(),
 }).strict().superRefine((value, ctx) => {
   for (const field of forbiddenPayloadFields) {
-    if (Object.hasOwn(value as any, field)) {
+    if (Object.hasOwn(value, field)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Forbidden queue field: ${field}`,
@@ -46,6 +46,7 @@ export const CommentIngestEventSchema = z.object({
                             external_user_id: z.string().optional()
                           }),
   comment_preview:        z.string().max(80),
+  risk_code:              z.enum(["NORMAL", "CRISIS"]),
   permalink:              z.string().url(),
   created_at_platform:    z.string().datetime(),
   correlation_id:         z.string().uuid(),
@@ -53,7 +54,7 @@ export const CommentIngestEventSchema = z.object({
   created_at:             z.string().datetime(),
 }).strict().superRefine((value, ctx) => {
   for (const field of forbiddenPayloadFields) {
-    if (Object.hasOwn(value as any, field)) {
+    if (Object.hasOwn(value, field)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Forbidden queue field: ${field}`,
@@ -62,7 +63,7 @@ export const CommentIngestEventSchema = z.object({
     }
   }
   
-  if (Object.hasOwn(value as any, "body")) {
+  if (Object.hasOwn(value, "body")) {
      ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Forbidden queue field: body`,

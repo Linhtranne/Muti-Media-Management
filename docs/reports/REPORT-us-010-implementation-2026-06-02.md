@@ -46,6 +46,13 @@ We used PostgreSQL triggers for deep-level append-only enforcement (blocking UPD
 ## Impact & Purpose
 The hardening standardizes telemetry and logging across the Orchestrator, making the platform fully compliant with US-010's strict security regulations. Raw secrets (like Facebook page tokens) can never be accidentally leaked into logging, and the database provides an immutable history of events ensuring correct audit capability.
 
+## Recent Hardenings
+- `correlation_id NOT NULL` enforced with deterministic backfill and `idempotencyKey ?? entityId` fallback.
+- severity DB check added (`info`, `warn`, `error`, `critical`).
+- actor_type DB check added (`system`, `user`, `admin`, `ai`).
+- idempotency unique index verified.
+- append-only trigger verified by tests/content check.
+
 ## Decisions Made
 | Decision | Rationale | Alternatives Considered |
 |:---|:---|:---|
@@ -54,11 +61,13 @@ The hardening standardizes telemetry and logging across the Orchestrator, making
 | Rename Action to Event_Type | Migrates the schema properly by COALESCEing existing records before renaming, protecting legacy data. | Drop and recreate (rejected due to data loss). |
 
 ## Verification
-- [x] Tests passed (230 test cases successful)
+- [x] Tests passed (268 test cases successful)
 - [x] Docs updated (FL-011 recorded)
 - [x] No secrets exposed (Redactor tests verified)
+- [x] Migration constraints tested
 - [x] Acceptance criteria met: US-010 ACs completed.
 
 ## Open Items / Next Steps
 - Apply the migration in staging/production databases.
 - Proceed to any remaining tickets in the sprint.
+- The 12-month retention policy is an operational retention policy/open item (automated job is not yet implemented).

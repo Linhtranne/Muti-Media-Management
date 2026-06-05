@@ -115,6 +115,19 @@ describe("CanonicalEventEnvelopeSchema", () => {
     });
     assert.equal(result.success, false, "Expected rejection for nested access_token in payload");
   });
+
+  it("rejects forbidden field nested inside array in payload", () => {
+    const result = CanonicalEventEnvelopeSchema.safeParse({
+      ...VALID_ENVELOPE,
+      payload: {
+        items: [
+          { job_ref: "job-001" },
+          { access_token: "leaked-token" }
+        ]
+      }
+    });
+    assert.equal(result.success, false, "Expected rejection for access_token inside payload array");
+  });
 });
 
 describe("findForbiddenFields", () => {
@@ -131,6 +144,16 @@ describe("findForbiddenFields", () => {
   it("finds nested forbidden field", () => {
     const violations = findForbiddenFields({ meta: { access_token: "abc" } }, "payload");
     assert.ok(violations.includes("payload.meta.access_token"), `Expected nested path in violations: ${violations.join(", ")}`);
+  });
+
+  it("finds forbidden field inside array", () => {
+    const violations = findForbiddenFields({ items: [{ access_token: "leak" }] }, "payload");
+    assert.ok(violations.includes("payload.items[0].access_token"), `Expected array item path in violations: ${violations.join(", ")}`);
+  });
+
+  it("finds forbidden field in a root level array", () => {
+    const violations = findForbiddenFields([{ secret: "leak" }], "payload");
+    assert.ok(violations.includes("payload[0].secret"), `Expected array item path in violations: ${violations.join(", ")}`);
   });
 
   it("finds deeply nested forbidden field", () => {
@@ -150,14 +173,21 @@ describe("assertNoForbiddenFields", () => {
 
   it("throws for payload with forbidden field", () => {
     assert.throws(
-      () => assertNoForbiddenFields({ access_token: "Bearer xyz" }, "payload"),
+      () => { assertNoForbiddenFields({ access_token: "Bearer xyz" }, "payload"); },
       /forbidden/i
     );
   });
 
   it("throws for nested forbidden field", () => {
     assert.throws(
-      () => assertNoForbiddenFields({ meta: { secret: "s3cr3t" } }, "payload"),
+      () => { assertNoForbiddenFields({ meta: { secret: "s3cr3t" } }, "payload"); },
+      /forbidden/i
+    );
+  });
+
+  it("throws for forbidden field inside array", () => {
+    assert.throws(
+      () => { assertNoForbiddenFields({ items: [{ secret: "leak" }] }, "payload"); },
       /forbidden/i
     );
   });
@@ -190,3 +220,54 @@ describe("buildCanonicalEvent", () => {
     );
   });
 });
+
+describe("camelCase and PascalCase forbidden fields", () => {
+  const camelCaseVariations = [
+    { camel: "accessToken", snake: "access_token" },
+    { camel: "secretRef", snake: "secret_ref" },
+    { camel: "apiKey", snake: "api_key" },
+    { camel: "rawPayload", snake: "raw_payload" },
+    { camel: "rawResponse", snake: "raw_response" },
+    { camel: "rawBody", snake: "raw_body" },
+    { camel: "rawGraphResponse", snake: "raw_graph_response" },
+    { camel: "largeContent", snake: "large_content" },
+    { camel: "refreshToken", snake: "refresh_token" }
+  ];
+
+  for (const { camel, snake } of camelCaseVariations) {
+    it(`rejects camelCase field '${camel}' (equivalent to '${snake}')`, () => {
+      // 1. Zod rejection
+      const result = CanonicalEventEnvelopeSchema.safeParse({
+        ...VALID_ENVELOPE,
+        payload: {
+          ...VALID_ENVELOPE.payload,
+          [camel]: "some-value"
+        }
+      });
+      assert.equal(result.success, false, `Expected Zod rejection for camelCase: ${camel}`);
+
+      // 2. findForbiddenFields detection
+      const violations = findForbiddenFields({ [camel]: "value" }, "payload");
+      assert.ok(
+        violations.includes(`payload.${camel}`),
+        `Expected payload.${camel} in violations, got: ${violations.join(", ")}`
+      );
+
+      // 3. assertNoForbiddenFields throws
+      assert.throws(
+        () => { assertNoForbiddenFields({ [camel]: "value" }); },
+        /forbidden/i
+      );
+    });
+
+    it(`rejects PascalCase field '${camel.charAt(0).toUpperCase() + camel.slice(1)}'`, () => {
+      const pascal = camel.charAt(0).toUpperCase() + camel.slice(1);
+      const violations = findForbiddenFields({ [pascal]: "value" }, "payload");
+      assert.ok(
+        violations.includes(`payload.${pascal}`),
+        `Expected payload.${pascal} in violations, got: ${violations.join(", ")}`
+      );
+    });
+  }
+});
+

@@ -507,131 +507,6 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 - 2026-05-20: Initial logic drafted.
 
 
-### FL-007: Notion Campaign Brief Context Loader
-
-**Backlog Link:** US-013  
-**Owner:** Orchestration/BA  
-**Status:** Draft
-
-**Trigger**
-- AI Composer starts for an Approved Post with `Notion Brief URL`.
-
-**Input**
-- `notion_page_id` or `notion_brief_url`, campaign id, configured guideline page ids.
-
-**Processing Logic**
-1. Resolve Notion page id from Airtable Campaign field.
-2. Fetch allowed Notion page content or use manually exported context in MVP.
-3. Extract brief summary, brand voice, do/avoid terms, legal notes.
-4. Store context reference, not full sensitive raw content if not needed.
-5. Pass normalized context into AI prompt builder.
-
-**Output**
-- Normalized context object for AI Composer.
-
-**Error Handling**
-- Page unavailable: mark context warning and continue only if fallback allowed.
-- Permission error: alert Admin and mark workflow `needs_manual_review`.
-
-**Audit/Telemetry**
-- `NOTION_CONTEXT_LOADED`, `NOTION_CONTEXT_LOAD_FAILED`.
-
-**Security Rules**
-- Never read arbitrary Notion workspace pages.
-- Only configured pages linked from Airtable Campaign are allowed.
-- No secrets/tokens in Notion.
-
-**Test Evidence**
-- Pending.
-
-**Change History**
-- 2026-05-20: Initial logic drafted.
-
-
-### FL-008: RabbitMQ Event Bus Processing
-
-**Backlog Link:** US-014  
-**Owner:** Backend/Platform  
-**Status:** Draft
-
-**Trigger**
-- Webhook receiver, MCP server, or middleware creates asynchronous work.
-
-**Input**
-- `event_id`, `type`, `workspace_id`, `payload_ref`, `idempotency_key`, `correlation_id`.
-
-**Processing Logic**
-1. Producer validates event type.
-2. Producer stores event metadata in Ledger.
-3. Producer publishes message to RabbitMQ exchange.
-4. Queue routes message to worker-specific queue.
-5. Worker checks idempotency in Ledger.
-6. Worker processes event.
-7. Worker updates Ledger and acknowledges message.
-8. Worker retries temporary failures.
-9. Worker moves exhausted failures to DLQ.
-
-**Output**
-- Processed event, retry state, or DLQ event.
-
-**Error Handling**
-- Invalid event: reject and audit.
-- Temporary worker error: retry with backoff.
-- Permanent error: DLQ and alert Admin.
-
-**Audit/Telemetry**
-- `QUEUE_EVENT_PUBLISHED`, `QUEUE_EVENT_CONSUMED`, `QUEUE_EVENT_RETRIED`, `QUEUE_EVENT_DLQ`.
-
-**Security Rules**
-- Do not put raw tokens in RabbitMQ payload.
-- Large payloads must be stored by reference.
-- All workers must be idempotent.
-
-**Test Evidence**
-- Pending.
-
-**Change History**
-- 2026-05-20: Initial logic drafted.
-
-### FL-009: Unified Direct Message Ingestion
-
-**Backlog Link:** US-015  
-**Owner:** MCP/Backend/Support  
-**Status:** Draft
-
-**Trigger**
-- Platform MCP receives direct message webhook or polling result.
-
-**Input**
-- Platform, external thread id, external message id, sender metadata, message body, attachments.
-
-**Processing Logic**
-1. MCP validates source webhook.
-2. MCP publishes `dm.<platform>.ingest` to RabbitMQ.
-3. Worker checks duplicate by external message id.
-4. Worker upserts conversation.
-5. Worker inserts message.
-6. Worker evaluates SLA/risk.
-7. Worker publishes Slack/Teams alert event if needed.
-
-**Output**
-- Conversation and message records in Ledger.
-
-**Error Handling**
-- Duplicate message: no-op with audit.
-- Payload parse error: DLQ.
-- Ledger unavailable: retry.
-
-**Audit/Telemetry**
-- `DM_RECEIVED`, `DM_INGESTED`, `DM_DUPLICATE_IGNORED`, `DM_INGEST_FAILED`.
-
-**Security Rules**
-- Direct messages are sensitive data.
-- Airtable/Notion must not store full DM content.
-- Role-based access required for viewing/replying.
-
-**Change History**
-- 2026-05-20: Initial logic drafted.
 ### FL-005: Facebook Comment Sync
 
 **Backlog Link:** US-007  
@@ -717,7 +592,7 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 
 **Backlog Link:** US-013  
 **Owner:** Orchestration/BA  
-**Status:** Draft
+**Status:** Designed (Ready for Implementation)
 
 **Trigger**
 - AI Composer starts for an Approved Post with `Notion Brief URL`.
@@ -736,8 +611,8 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 - Normalized context object for AI Composer.
 
 **Error Handling**
-- Page unavailable: mark context warning and continue only if fallback allowed.
-- Permission error: alert Admin and mark workflow `needs_manual_review`.
+- SSRF/not allowlisted URL: hard fail AI run with `failed`, set parent workflow to `ai_generation_failed`, and do not silently fallback.
+- Notion 404/API unavailable/permission error: fallback to `campaign_objective` if configured and persist sanitized fallback context reference.
 
 **Audit/Telemetry**
 - `NOTION_CONTEXT_LOADED`, `NOTION_CONTEXT_LOAD_FAILED`.
@@ -758,89 +633,116 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 
 **Backlog Link:** US-014  
 **Owner:** Backend/Platform  
-**Status:** Draft
+**Status:** Designed (Ready for Implementation)
 
 **Trigger**
-- Webhook receiver, MCP server, or middleware creates asynchronous work.
+- Orchestrator produces async event. Existing functions emitting events: FL-001, FL-003, FL-004b, FL-005, FL-014.
 
 **Input**
-- `event_id`, `type`, `workspace_id`, `payload_ref`, `idempotency_key`, `correlation_id`.
+- Payload (Reference-Only): `event_id`, `type`, `workspace_id`, `idempotency_key`, `correlation_id`, `causation_id`, reference fields.
+- Properties: `content_type=application/json`, `delivery_mode=2`.
 
 **Processing Logic**
-1. Producer validates event type.
-2. Producer stores event metadata in Ledger.
-3. Producer publishes message to RabbitMQ exchange.
-4. Queue routes message to worker-specific queue.
-5. Worker checks idempotency in Ledger.
-6. Worker processes event.
-7. Worker updates Ledger and acknowledges message.
-8. Worker retries temporary failures.
-9. Worker moves exhausted failures to DLQ.
+1. **Producer Side:** Publish with `ConfirmChannel`. Validate schema (no token). 
+2. **Broker Routing:** 
+   - New standard: use canonical topic exchange `mediaops.events.topic`.
+   - Legacy compatibility: Keep existing direct exchanges/queues for backward compatibility without breaking existing US-006->013 flows.
+3. **Consumer Side (amqplib):** 
+   - Config-driven topology registration for wiring (exchange, queue, routingKey, dlq, prefetch, retry TTL). Does not mutate business logic.
+   - Enforce idempotency guard before executing worker logic.
+4. **Error Handling & Retry:** 
+   - Implement retry through RabbitMQ TTL retry queues + DLQ (Slack command consumer pattern).
+   - Per-queue DLQ (e.g., `publish.facebook.execute.dlq`).
+5. **ACK Policy:**
+   - ACK original message ONLY after Ledger commit AND after any retry/DLQ publish confirms.
 
 **Output**
-- Processed event, retry state, or DLQ event.
+- Updated Ledger state, or messages routed to DLQ.
 
 **Error Handling**
-- Invalid event: reject and audit.
-- Temporary worker error: retry with backoff.
-- Permanent error: DLQ and alert Admin.
+- Temporary error: TTL retry queue.
+- Permanent error/exhausted: Publish to DLQ via ConfirmChannel, then ACK original message.
 
 **Audit/Telemetry**
 - `QUEUE_EVENT_PUBLISHED`, `QUEUE_EVENT_CONSUMED`, `QUEUE_EVENT_RETRIED`, `QUEUE_EVENT_DLQ`.
 
 **Security Rules**
-- Do not put raw tokens in RabbitMQ payload.
-- Large payloads must be stored by reference.
-- All workers must be idempotent.
-
-**Test Evidence**
-- Pending.
+- RabbitMQ payload must be reference-only, ZERO tokens.
+- Idempotency check mandatory.
 
 **Change History**
 - 2026-05-20: Initial logic drafted.
+- 2026-06-03: Designed for US-014 (amqplib, canonical topic + legacy compatibility, per-queue DLQ, config-driven registration).
 
-### FL-009: Unified Direct Message Ingestion
+### FL-014: Unified Direct Message Ingestion and Reply
 
 **Backlog Link:** US-015  
 **Owner:** MCP/Backend/Support  
-**Status:** Draft
+**Status:** Implemented
 
 **Trigger**
-- Platform MCP receives direct message webhook or polling result.
+- Platform MCP receives inbound direct message webhook or polling result.
+- Support or admin user executes Slack slash command `/reply_dm`.
 
 **Input**
-- Platform, external thread id, external message id, sender metadata, message body, attachments.
+- Webhook Payload / Ingest Event: `event_id`, `event_type = dm.facebook.ingest`, `workspace_id`, `idempotency_key`, `correlation_id`, reference payload containing `platform`, `channel_account_id`, `external_thread_id`, `external_message_id`, `customer_ref`, `body_preview`, `created_at_platform`, `has_attachments`.
+- Slack command input: `/reply_dm <conversation_id> <message>`.
 
 **Processing Logic**
-1. MCP validates source webhook.
-2. MCP publishes `dm.<platform>.ingest` to RabbitMQ.
-3. Worker checks duplicate by external message id.
-4. Worker upserts conversation.
-5. Worker inserts message.
-6. Worker evaluates SLA/risk.
-7. Worker publishes Slack/Teams alert event if needed.
+1. **Ingestion (Inbound DM):**
+   - MCP validates origin/signature of source webhook and publishes references-only event to `dm.facebook.ingest`.
+   - Consumer validates payload schema via `DirectMessageIngestEventSchema`. Invalid payload -> DLQ -> ACK.
+   - Enforce idempotency via `checkIdempotency()`. If duplicate -> ignore, audit `DM_DUPLICATE_IGNORED`, ACK.
+   - Start transaction: `SET LOCAL app.current_workspace_id = :workspace_id`.
+   - Call MCP tool `get_direct_message` by reference to reload message details securely (no tokens in middleware). **Note:** This tool must be implemented in the Facebook MCP server as part of US-015, querying by `channel_account_id` and `external_message_id`/`external_thread_id`. For mock/testing environments, it must return deterministic mock message bodies.
+   - Upsert `conversations` thread: lookup by `(workspace_id, platform, external_thread_id)`. If new, set `status='new'` and `sla_due_at = NOW() + DM_SLA_HOURS` (fallback to 2 hours). If thread exists, update `last_message_at` and change status to `new` (if resolved).
+   - Insert message in `conversation_messages` with plaintext body.
+   - Audit event `DM_INGESTED`.
+   - Publish references-only notification to Slack inbox channel (shows sender name and `body_preview` max 80 chars, no tokens, no full message body).
+   - Commit ledger transaction and ACK message from queue.
+
+2. **Replying (Outbound DM):**
+   - Slash command receiver verifies Slack signature and timestamp.
+   - Map Slack user ID to `workspace_members` role. Allow only `support`, `manager`, `admin`; reject `creator`/`viewer`.
+   - Create record in `direct_message_reply_jobs` (status `received`) and publish `dm.reply.requested` to RabbitMQ.
+   - Reply Worker claims job in transaction, transitions status to `processing`.
+   - Calls MCP tool `send_direct_message` passing `channel_account_id`, `external_thread_id`, and `reply_body`.
+   - MCP resolves channel account token from server-side vault and makes Graph API post.
+   - On success: update job status to `succeeded`, insert message in `conversation_messages` (direction `outbound`, sender `agent`), update conversation status to `waiting`.
+   - Audit event `DM_REPLY_SUCCEEDED`.
+   - ACK message from queue.
 
 **Output**
-- Conversation and message records in Ledger.
+- Conversations, conversation messages, and reply jobs updated in database Ledger.
+- Outbound message sent on target social platform.
+- Audits and Slack confirmation.
 
-**Error Handling**
-- Duplicate message: no-op with audit.
-- Payload parse error: DLQ.
-- Ledger unavailable: retry.
+**Error Handling & Ingestion Matrix**
+
+| Case | Detection | Action | Ledger Status | Retry? |
+|:---|:---|:---|:---|:---|
+| Valid Ingress message | New external_message_id | Upsert conversation, insert message, alert, ACK | `DM_INGESTED` | No |
+| Duplicate message | Idempotency guard duplicate key | Skip worker execution, log ignore, ACK | `DM_DUPLICATE_IGNORED` | No |
+| Malformed event payload | Zod schema validation fail | Route straight to DLQ, ACK | `DM_INGEST_FAILED` | DLQ |
+| Platform error on reply | Graph API error / OAuth exception | Update job `failed` with code, alert Slack Admin, ACK | `DM_REPLY_FAILED` | No |
+| Database transaction fail | Postgres connection timeout | NACK (re-enqueue with backoff, max 5) | Unchanged | Yes |
 
 **Audit/Telemetry**
-- `DM_RECEIVED`, `DM_INGESTED`, `DM_DUPLICATE_IGNORED`, `DM_INGEST_FAILED`.
+- Events: `DM_RECEIVED`, `DM_INGESTED`, `DM_DUPLICATE_IGNORED`, `DM_INGEST_FAILED`, `DM_REPLY_QUEUED`, `DM_REPLY_SUCCEEDED`, `DM_REPLY_FAILED`.
+- Sanitized metadata via `AuditLogRepository`, no raw tokens or secrets.
 
 **Security Rules**
-- Direct messages are sensitive data.
-- Airtable/Notion must not store full DM content.
-- Role-based access required for viewing/replying.
+- RLS enabled on all DM tables. Transactions must set `app.current_workspace_id`.
+- Zero token policy. Token references only in database, token resolution strictly in MCP server.
+- No full message body in Slack notifications, Airtable, or Notion (redact/preview max 80 chars).
+- **FK Assignment Tenant Guard:** Any thread assignment action must strictly validate that the assigned member belongs to the same workspace (`WHERE id = :assigned_to_member_id AND workspace_id = :workspace_id`) in the repository/service layer to prevent cross-workspace leaks.
 
 **Test Evidence**
-- Pending.
+- Planned tests: Zod contract checks, RLS workspace separation tests, mock consumer idempotency, worker ACK after commit, role-based command authorization, reply execution boundary validation.
 
 **Change History**
-- 2026-05-20: Initial logic drafted.
+- 2026-05-20: Initial logic drafted (Draft).
+- 2026-06-03: Designed and promoted to Designed status (Facebook MVP chot generic/mock MCP, SLA env-driven, separate reply_dm command, and workspace-scoped composite uniqueness/RLS).
 
 ---
 
@@ -1041,8 +943,203 @@ File này là nguồn ghi lại toàn bộ luồng và logic của từng chức
 - Records event types: FACEBOOK_PAGE_OAUTH_STARTED, FACEBOOK_PAGE_CONNECTED, FACEBOOK_PAGE_DISCONNECTED, FACEBOOK_PAGE_AIRTABLE_SYNC_FAILED.
 - Redactor ensures no secrets leak.
 
+**Backlog Link:** US-008
+**Owner:** Backend/Orchestration
+**Status:** Implemented
+
+**Trigger**
+- User types `/approve_post <post_id>` or `/reject_post <post_id> <reason>` in Slack.
+- Slack sends an HTTP POST request to `/api/v1/slack/commands`.
+
+**Input**
+- `application/x-www-form-urlencoded` body containing `command`, `text`, `user_id`, `team_id`.
+- Headers: `X-Slack-Signature`, `X-Slack-Request-Timestamp`.
+
+**Processing Logic**
+1. **Webhook Receiver (Route):**
+   - Read body raw to verify `X-Slack-Signature` using `HMAC-SHA256` in constant time against `SLACK_SIGNING_SECRET`.
+   - Reject if signature is invalid or timestamp is older than 5 minutes.
+   - Parse `command` and `text` to extract `action` (approve/reject), `postId`, and `reason`.
+   - Idempotency check: calculate SHA256 of `workspace_id:slack_user_id:command:text:timestamp`.
+   - Check if event exists in `slack_command_events` via Idempotency Key. If yes, respond with duplicate message.
+   - Insert received event into `slack_command_events` (status: `received` / `rejected`).
+   - Look up user role in `workspace_members`. If not `manager` or `admin`, reject.
+   - Update event status to `queued`.
+   - Respond immediately with HTTP 200 ephemeral message (e.g., "Processing your request...").
+   - Publish `slack.post_approval.requested` to RabbitMQ.
+
+2. **Worker (SlackPostApprovalWorker):**
+   - Consume message from RabbitMQ.
+   - Fetch event from `slack_command_events` to verify it hasn't been processed.
+   - Fetch post from Airtable using `postId`. 
+   - Verify post status is valid for review (`Draft`, `Review`, or `Needs Review`).
+   - If approve: update Airtable post status to `Approved`.
+   - If reject: update Airtable post status to `Review`, and set `rejection_reason` (or `review_notes`) with the reason.
+   - Update related `workflow_runs` status to `completed` or `cancelled`.
+   - Update `slack_command_events` status to `succeeded` or `failed`.
+   - Write `SLACK_COMMAND_SUCCEEDED` / `FAILED` audit log.
+   - ACK message.
+
+**Output**
+- Ephemeral HTTP 200 response to Slack.
+- Updated status and reason in Airtable.
+- Audit logs in Ledger.
+
+**Error Handling**
+- Invalid signature -> HTTP 200 ephemeral error message, logged and audited.
+- Parse errors / Missing arguments -> HTTP 200 ephemeral help message.
+- Unauthorized user -> HTTP 200 ephemeral unauthorized message.
+- Airtable update fails -> NACK requeue with exponential backoff (max 5 retries).
+- Post not found in Airtable -> ACK, mark as failed in Ledger.
+
+**Audit/Telemetry**
+- `SLACK_SIGNATURE_REJECTED`
+- `SLACK_COMMAND_DUPLICATE_IGNORED`
+- `SLACK_COMMAND_REJECTED`
+- `SLACK_COMMAND_RECEIVED`
+- `SLACK_COMMAND_SUCCEEDED`
+- `SLACK_COMMAND_FAILED`
+
 **Security Rules**
-- Never send pp_secret or raw token back to the Orchestrator or Admin client.
+- Requires `SLACK_SIGNING_SECRET` configured for verification.
+- Enforces replay protection (5 minute window).
+- Requires `manager` or `admin` role in `workspace_members` (no implicit trust of Slack User IDs).
+
+**Test Evidence**
+- See unit tests in `slackSignatureVerifier.test.ts`, `slackCommandParser.test.ts`, `slackCommandsRoute.test.ts`, and `slackPostApprovalWorker.test.ts`.
+
+**Change History**
+- 2026-06-02: Initial implementation drafted for US-008.
+
+### FL-010: Slack Reply/Escalate Comment Slash Command
+
+**Backlog Link:** US-009
+**Owner:** Backend/Orchestration
+**Status:** Implemented
+
+**Trigger**
+- User types `/reply_comment <interaction_id> <message>` or `/escalate <interaction_id> [reason]` in Slack.
+- Slack sends an HTTP POST request to `/api/v1/slack/commands`.
+
+**Input**
+- `application/x-www-form-urlencoded` body containing `command`, `text`, `user_id`, `team_id`.
+- Headers: `X-Slack-Signature`, `X-Slack-Request-Timestamp`.
+
+**Processing Logic**
+1. **Webhook Receiver (Route):**
+   - Reuses US-008 signature verification.
+   - Parses `command` and `text` to extract `action` (reply/escalate), `interactionId`, and `message`/`reason`.
+   - Checks Idempotency Key against `comment_action_events`.
+   - Inserts received event into `comment_action_events`.
+   - Looks up user role in `workspace_members`. Role must be `manager`, `admin`, or `support`.
+   - Updates event status to `queued`.
+   - Publishes `slack.comment_action.requested` to RabbitMQ.
+   - Responds with ephemeral HTTP 200 message.
+
+2. **Worker (SlackCommentActionWorker):**
+   - Consumes message from RabbitMQ.
+   - Fetches event from `comment_action_events`.
+   - Fetches interaction from `interactions`.
+   - If `reply`:
+     - Looks up active Facebook `channel_account_id`; MCP resolves credentials internally.
+     - Calls Facebook MCP server `replyComment` tool.
+     - Updates interaction status to `resolved` and saves `external_reply_id`.
+   - If `escalate`:
+     - Updates interaction status to `escalated`.
+     - Publishes Slack alert.
+   - Commits updates to Ledger and ACKs RabbitMQ message.
+
+**Output**
+- Reply posted to Facebook (via MCP) or Escalation Alert sent to Slack.
+- Updated status in Ledger.
+
+**Error Handling**
+- MCP failure -> NACK requeue (transient) or mark failed (permanent).
+- Interaction not found -> ACK, mark failed.
+
+**Audit/Telemetry**
+- `SLACK_COMMENT_ACTION_SUCCEEDED`
+- `SLACK_COMMENT_ACTION_FAILED`
+
+**Security Rules**
+- Reuses US-008 Slack signature verification.
+- Enforces role mapping (`support`, `manager`, `admin`).
+- Token resolution happens exclusively inside MCP Server.
+
+**Change History**
+- 2026-06-02: Implemented for US-009.
+
+### FL-011: Operational Ledger & Audit Log Hardening
+
+**Backlog Link:** US-010
+**Owner:** Backend/Platform
+**Status:** Implemented
+
+**Trigger**
+- Any worker, route, or subsystem calls `AuditLogRepository.insertAuditLog`.
+
+**Input**
+- `workspaceId`, `eventType`, `entityType`, `entityId`, `actorType`, `actorId`, `correlationId`, `causationId`, `idempotencyKey`, `severity`, `metadata`.
+
+**Processing Logic**
+1. Pass `metadata` through `auditRedactor.sanitizeAuditMetadata`.
+2. Recursive redactor strips forbidden keys (e.g., token, secret, password) from any nested level and replaces values with `[REDACTED]`. Marks `metadata_redacted: true` and logs bare `redacted_keys`.
+3. Insert into `audit_logs` using canonical schema fields (including `event_type` and `correlation_id`).
+4. Conflict resolution on `(workspace_id, idempotency_key)` ignores duplicate inserts safely.
+
+**Output**
+- A hardened, redacted, append-only row in `audit_logs`.
+
+**Error Handling**
+- DB unique constraint violation (duplicate idempotency) -> gracefully ignored via `DO NOTHING`.
+- Missing required fields -> DB constraint error (throws, rejecting parent transaction).
+
+**Audit/Telemetry**
+- The insert operation itself is the audit/telemetry.
+
+**Security Rules**
+- RLS enforces `workspace_id` isolation (`AS RESTRICTIVE FOR ALL`).
+- Append-only Trigger blocks `UPDATE` and `DELETE` globally.
+- Redactor ensures no raw tokens are ever logged in the ledger.
+
+**Change History**
+- 2026-06-02: Implemented schema migration, redactor utility, and Shared Repository for US-010.
+
+### FL-012: Admin Facebook Page Configuration
+
+**Backlog Link:** US-011
+**Owner:** Backend/Orchestration
+**Status:** Implemented
+
+**Trigger**
+- Admin calls the API routes (/api/v1/admin/facebook/*) to authorize, connect, health-check, or disconnect Facebook Pages.
+
+**Input**
+- Admin request with x-admin-role header.
+- For connect: pageId, userTokenRef.
+- For health-check / disconnect: channelAccountId.
+
+**Processing Logic**
+1. **Validation:** Ensure feature flag FACEBOOK_PAGE_CONFIG_ENABLED is true, and admin role matches.
+2. **MCP Invocation:** Relay operations to acebook-mcp-server tools (generateOAuthUrl, exchangeCodeAndListPages, connectPage, healthCheckToken).
+3. **Dual Write (Connect):** Create/Update channel_accounts using channelAccountAdminRepository. Dual-write the token reference into 	oken_references table for unified secret mapping. Update channel_accounts.secret_ref.
+4. **Audit Logging:** Log all administrative actions with  ctorId: "system" and actorType user/system, ensuring no secrets are passed.
+5. **Airtable Sync:** For connect, disconnect, and health-check, update Airtable safe fields (channel_status, 	oken_status, permission_status).
+
+**Output**
+- Standard JSON responses (success, error). Safe channel_account record returned.
+
+**Error Handling**
+- Missing role -> 403 Forbidden.
+- Feature flag disabled -> 404 Not Found.
+- Meta errors or MCP errors -> Propagated cleanly without raw tokens.
+
+**Audit/Telemetry**
+- Records event types: FACEBOOK_PAGE_OAUTH_STARTED, FACEBOOK_PAGE_CONNECTED, FACEBOOK_PAGE_DISCONNECTED, FACEBOOK_PAGE_AIRTABLE_SYNC_FAILED.
+- Redactor ensures no secrets leak.
+
+**Security Rules**
+- Never send  pp_secret or raw token back to the Orchestrator or Admin client.
 - Always use 	oken_references to store the pointer to the real secret store.
 
 **Change History**

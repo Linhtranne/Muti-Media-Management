@@ -22,7 +22,7 @@ export class AuditLogRepository {
     return sanitizeAuditMetadata(metadata);
   }
 
-  async insertAuditLog(client: pg.PoolClient, input: AuditLogInput): Promise<void> {
+  async insertAuditLog(client: pg.PoolClient | pg.Pool, input: AuditLogInput): Promise<void> {
     const sanitizedMetadata = this.sanitizeAuditMetadata(input.metadata || {});
 
     await client.query(
@@ -48,7 +48,7 @@ export class AuditLogRepository {
         input.entityId,
         input.actorType || "system",
         input.actorId || "system",
-        input.correlationId || null,
+        input.correlationId || input.idempotencyKey || input.entityId,
         input.causationId || null,
         input.idempotencyKey || null,
         input.severity || "info",

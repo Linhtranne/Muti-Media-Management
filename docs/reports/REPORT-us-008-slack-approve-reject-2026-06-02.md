@@ -22,6 +22,8 @@ Implemented the MVP slash commands for Slack (`/approve_post` and `/reject_post`
 - [x] Enforced `SLACK_SIGNING_SECRET` when commands are enabled in `env.ts`.
 - [x] Created `seed_workspace_members.ts` script for seeding Role mapping.
 - [x] Updated worker to use dynamic Airtable rejection field and dual-matching (`post_id` / `airtable_record_id`) for workflow consistency.
+- [x] 2026-06-03 hardening: Slack route now sends the HTTP 200 response before RabbitMQ publish confirm to preserve Slack's 3-second timeout budget.
+- [x] 2026-06-03 hardening: Worker now records compensation and ACKs when Airtable was already updated but the final Ledger success commit fails.
 
 ## How It Was Done
 ### Approach
@@ -48,6 +50,8 @@ We used the Composability Architecture, creating a zero-trust interface between 
 | `apps/orchestrator/src/queue/rabbitmqPublisher.ts` | Modified | Added slack command publish |
 | `apps/orchestrator/src/queue/slackCommandRabbitmqConsumer.ts` | Created | RabbitMQ consumer |
 | `apps/orchestrator/src/workers/slackPostApprovalWorker.ts` | Created | Queue worker |
+| `apps/orchestrator/src/__tests__/slackCommandsRoute.test.ts` | Modified | Added regression coverage for fast Slack response before RabbitMQ confirm |
+| `apps/orchestrator/src/__tests__/slackPostApprovalWorker.test.ts` | Modified | Added compensation coverage for Airtable-applied/Ledger-final-commit-failed case |
 | `apps/orchestrator/src/server.ts` | Modified | Wired up components |
 | `docs/requirements/05_Function_Flow_Logic_Register.md` | Modified | Added FL-009 |
 
@@ -60,11 +64,14 @@ Managers can now directly approve or reject drafted posts via Slack, drastically
 | Minimal role mapping table (`workspace_members`) | Ensures zero trust. Slack User IDs cannot bypass authorization arbitrarily. | Hardcoding Slack IDs or fetching dynamically from external systems. |
 | Ephemeral immediate response | Slack requires response in 3s. Queue worker allows async execution. | Using Slack `response_url` (rejected for MVP simplicity). |
 | Idempotency Key via hashing | Prevent double execution from Slack webhook retries. | Simple duplicate command checks (less reliable). |
+| Post-response publish fallback | Keeps Slack response fast while preserving failure visibility through Ledger status and audit if RabbitMQ publish fails. | Waiting for RabbitMQ confirm before response, which risks Slack timeout. |
+| Compensation after Airtable side effect | Avoids re-running Airtable update when final Ledger success commit fails after Airtable already changed state. | Blind requeue, which can repeat an already-applied side effect. |
 
 ## Verification
-- [x] `npm run build` passed.
+- [x] `npm run build` passed on 2026-06-03.
+- [x] `npm run lint:eslint` passed on 2026-06-03.
 - [x] Slack-specific tests (contracts, parser, verifier, worker, route) were added to `run-tests.mjs`.
-- [x] Full test suite passed (220/220).
+- [x] Full test suite passed on 2026-06-03 (263/263).
 - [x] Docs updated (FL-009 added)
 - [x] No secrets exposed
 - [x] Acceptance criteria met: The slash commands have been fully implemented with zero-trust verification and idempotency checks.

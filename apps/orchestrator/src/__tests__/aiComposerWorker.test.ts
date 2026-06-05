@@ -523,6 +523,155 @@ describe("AiComposerWorker Integration Scenarios", () => {
     assert.equal(persistedErrorMessage.includes("secret-bearer-token"), false);
     assert.ok(persistedErrorMessage.includes("[REDACTED]"));
   });
+
+  // ──────────────────────────────────────────────
+  // SCENARIO 9: Notion SSRF Hard Fail
+  // ──────────────────────────────────────────────
+  it("SC-09 Notion SSRF: hard fails workflow run with NOTION_NOT_ALLOWLISTED and no silent fallback", async () => {
+    let finalStatus = "";
+    let finalErrorCode = "";
+
+    const mockDb: Database = {
+      async transaction(wsId, fn) {
+        const client = {
+          query: async (text: string, values?: any[]) => {
+            if (text.includes("FROM workflow_runs")) {
+              return { rows: [{ id: "wf_run_123", status: "pending_ai_generation", approved_version: 1, airtable_record_id: "recPost123" }] };
+            }
+            if (text.includes("FROM ai_generation_runs")) {
+              return { rows: [] };
+            }
+            if (text.includes("UPDATE ai_generation_runs") && values?.[2] === "failed") {
+              finalStatus = values[2];
+              finalErrorCode = values[3];
+            }
+            return { rows: [{ id: "some-uuid" }] };
+          }
+        } as any;
+        return fn(client);
+      },
+      async query() {
+        return { rows: [] } as any;
+      },
+      getPool() {
+        return {} as any;
+      }
+    };
+
+    const mockAirtable: AirtableClient = {
+      async updateRecordStatus() {},
+      async getPostRecord(recordId) {
+        return AirtableReloadedRecordSchema.parse({
+          id: recordId,
+          fields: {
+            status: "Approved",
+            is_valid_for_approval: 1,
+            master_copy: "Copy",
+            target_channels: ["Facebook"],
+            campaign_id: ["cmp_123"]
+          }
+        });
+      },
+      async fetchCampaignRecord() { 
+        return {
+          notion_brief_url: "http://169.254.169.254/latest/meta-data/",
+          campaign_objective: "Fallback objective"
+        };
+      },
+      async updateRecord() {}, async updateVariantDraft() {}
+    };
+
+    const { NotionSsrfError } = await import("../services/notionClient.js");
+    
+    // Override notion fetch to throw SSRF error
+    const worker = new AiComposerWorker(mockDb, mockAirtable, new GeminiLlmAdapter("mock"), logger, workspaceId, "fb_composer_v1.0.0", fieldMap);
+    (worker as any).notionClient = {
+      async fetchNotionBrief() {
+        throw new NotionSsrfError("SSRF protection blocked URL");
+      }
+    };
+
+    const result = await worker.processWorkflowRun("wf_run_123");
+
+    assert.equal(result.success, false);
+    assert.equal(finalStatus, "failed");
+    assert.equal(finalErrorCode, "NOTION_NOT_ALLOWLISTED");
+    assert.equal(result.errorCode, "NOTION_NOT_ALLOWLISTED");
+  });
+
+  // ──────────────────────────────────────────────
+  // SCENARIO 10: Notion API Failure with Fallback
+  // ──────────────────────────────────────────────
+  it("SC-10 Notion API Fail: falls back to campaign_objective successfully", async () => {
+    let contextRefsSaved: any[] = [];
+    
+    const mockDb: Database = {
+      async transaction(wsId, fn) {
+        const client = {
+          query: async (text: string, values?: any[]) => {
+            if (text.includes("FROM workflow_runs")) {
+              return { rows: [{ id: "wf_run_123", status: "pending_ai_generation", approved_version: 1, airtable_record_id: "recPost123" }] };
+            }
+            if (text.includes("FROM ai_generation_runs")) {
+              return { rows: [] };
+            }
+            return { rows: [{ id: "some-uuid" }] };
+          }
+        } as any;
+        return fn(client);
+      },
+      async query(text: string, values?: any[]) {
+        if (text.includes("UPDATE ai_generation_runs SET input_snapshot") && values?.[3]) {
+          contextRefsSaved = JSON.parse(values[3]);
+        }
+        return { rows: [] } as any;
+      },
+      getPool() {
+        return {} as any;
+      }
+    };
+
+    const mockAirtable: AirtableClient = {
+      async updateRecordStatus() {},
+      async getPostRecord(recordId) {
+        return AirtableReloadedRecordSchema.parse({
+          id: recordId,
+          fields: {
+            status: "Approved",
+            is_valid_for_approval: 1,
+            master_copy: "Copy",
+            target_channels: ["Facebook"],
+            campaign_id: ["cmp_123"],
+            cta_url: "https://mediaops.com/launch?utm_source=fb&utm_medium=post"
+          }
+        });
+      },
+      async fetchCampaignRecord() { 
+        return {
+          notion_brief_url: "https://www.notion.so/my-campaign-brief-123",
+          campaign_objective: "Fallback objective"
+        };
+      },
+      async updateRecord() {}, async updateVariantDraft() {}
+    };
+
+    process.env.MOCK_LLM_SCENARIO = "happy";
+    const worker = new AiComposerWorker(mockDb, mockAirtable, new GeminiLlmAdapter("mock"), logger, workspaceId, "fb_composer_v1.0.0", fieldMap);
+    (worker as any).notionClient = {
+      async fetchNotionBrief() {
+        throw new Error("404 Not Found");
+      }
+    };
+
+    const result = await worker.processWorkflowRun("wf_run_123");
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "completed");
+    assert.equal(contextRefsSaved.length, 1);
+    assert.equal(contextRefsSaved[0].load_status, "fallback");
+    assert.equal(contextRefsSaved[0].error_code, "CONTEXT_UNREACHABLE");
+    assert.ok(contextRefsSaved[0].error_message.includes("404 Not Found"));
+  });
 });
 
 
