@@ -38,3 +38,8 @@ Provide a robust, automated pre-commit and CI verification gate that enforces ar
 - [x] Content quality and AC tracing check successfully passes for `AI-SDLC-001`.
 - [x] Staging smoke check successfully runs against local services.
 - [x] Completion report is created.
+
+## Links
+- Spec: [[SPEC-AI-SDLC-002-Native-Gate-Checker]]
+- Requirement: [[US-AI-SDLC-002-Native-Gate-Checker]]
+- Code: [[scripts/pre-commit-gate.mjs]], [[scripts/ai-sdlc-check.mjs]], [[scripts/runtime-smoke.mjs]], [[scripts/install-hooks.mjs]]

@@ -22,3 +22,8 @@ All 442 tests are passing green.
 npm test
 ```
 Result: Pass (442 tests, 0 failures).
+
+## Links
+- Spec: [[SPEC-AI-SDLC-002-Native-Gate-Checker]]
+- Plan: [[PLAN-AI-SDLC-002-Native-Gate-Checker]]
+- Tests: [[scripts/__tests__/ai-sdlc-quality.test.mjs]], [[scripts/__tests__/ai-sdlc-trace.test.mjs]], [[scripts/__tests__/pre-commit-gate.test.mjs]], [[scripts/__tests__/runtime-smoke.test.mjs]]

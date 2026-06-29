@@ -91,14 +91,14 @@ This moves the AI-SDLC workflow from manual/informational checking into full loc
 
 | Gate | Evidence | Verdict |
 |:---|:---|:---|
-| Spec approved | `docs/specs/SPEC-AI-SDLC-002-Native-Gate-Checker.md` | Pass |
-| Plan approved | `docs/plans/AI-SDLC-002/PLAN-AI-SDLC-002-Native-Gate-Checker.md` | Pass |
-| Baseline result | `docs/testing/AI-SDLC-002/RED-AI-SDLC-002-Native-Gate-Checker.md` | Pass |
-| Red test evidence | `docs/testing/AI-SDLC-002/RED-AI-SDLC-002-Native-Gate-Checker.md` | Pass |
+| Spec approved | [[SPEC-AI-SDLC-002-Native-Gate-Checker]] | Pass |
+| Plan approved | [[PLAN-AI-SDLC-002-Native-Gate-Checker]] | Pass |
+| Baseline result | [[RED-AI-SDLC-002-Native-Gate-Checker]] | Pass |
+| Red test evidence | [[RED-AI-SDLC-002-Native-Gate-Checker]] | Pass |
 | Build/lint/test evidence | `npm run build`, `npm run lint`, `npm test` pass; 442 tests, 0 failures | Pass |
-| Report evidence | `docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Native-Gate-Checker.md` | Pass |
+| Report evidence | [[REPORT-AI-SDLC-002-Native-Gate-Checker]] | Pass |
 | Open items | None | Pass |
-| Runtime smoke | `npm run ai-sdlc:smoke -- AI-SDLC-001` passed successfully | Pass |
+| Runtime smoke | `npm run ai-sdlc:smoke -- AI-SDLC-002` passed successfully | Pass |
 
 **Allowed status:** Verified  
 **Reason:** The system checks pass successfully, quality validation has been fully implemented and verified via unit tests, pre-commit hook setup has been automated and checked, and staging smoke connectivity checks for external services were successfully executed.
@@ -106,3 +106,9 @@ This moves the AI-SDLC workflow from manual/informational checking into full loc
 ## Open Items / Next Steps
 
 - Push the branch to staging/remote to verify GitHub Actions workflow triggers.
+
+## Links
+- Requirement: [[US-AI-SDLC-002-Native-Gate-Checker]]
+- Spec: [[SPEC-AI-SDLC-002-Native-Gate-Checker]]
+- Plan: [[PLAN-AI-SDLC-002-Native-Gate-Checker]]
+- Green Evidence: [[GREEN-AI-SDLC-002-Native-Gate-Checker]]

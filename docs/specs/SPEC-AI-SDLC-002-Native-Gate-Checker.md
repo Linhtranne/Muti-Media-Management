@@ -95,3 +95,7 @@ Automate and elevate the AI-SDLC verification process to a "Native" level:
 - Unit tests for markdown quality verification (headings presence, placeholder check).
 - Unit tests for AC traceability extraction and cross-check.
 - Unit tests for runtime smoke checker mock connections.
+
+## Links
+- Requirement: [[US-AI-SDLC-002-Native-Gate-Checker]]
+- Plan: [[PLAN-AI-SDLC-002-Native-Gate-Checker]]

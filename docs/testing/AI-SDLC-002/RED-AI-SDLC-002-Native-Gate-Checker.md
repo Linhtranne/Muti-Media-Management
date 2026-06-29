@@ -17,3 +17,7 @@ Expected RED result:
 ```text
 SyntaxError: The requested module '../ai-sdlc-check.mjs' does not provide an export named 'detectPlaceholders'
 ```
+
+## Links
+- Spec: [[SPEC-AI-SDLC-002-Native-Gate-Checker]]
+- Plan: [[PLAN-AI-SDLC-002-Native-Gate-Checker]]
