@@ -15,6 +15,7 @@ Before answering implementation, planning, review, debugging, status, or readine
 7. `docs/ai-sdlc/01_AI_WORKING_RULES.md`
 8. `docs/ai-sdlc/02_VALIDATION_GATE.md`
 9. `docs/ai-sdlc/03_STORY_STATUS_TEMPLATE.md`
+10. `docs/ai-sdlc/04_COMPLETION_GATE.md`
 
 If these files have not been read in the current session, STOP. Do not plan, code, review, debug, or answer readiness until the boot sequence is complete.
 

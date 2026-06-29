@@ -3,7 +3,7 @@
 **Task Slug:** US-013-Notion-Loader
 **Date:** 2026-06-24
 **Target:** Pilot AI-SDLC
-**Status:** Approved for Implementation
+**Status:** Implemented - local validation passed, runtime smoke not performed
 
 ## 1. Specification (Spec)
 Please refer to `docs/specs/SPEC-US-013-Notion-Context-Loader.md` for the approved specification.
@@ -11,16 +11,16 @@ Please refer to `docs/specs/SPEC-US-013-Notion-Context-Loader.md` for the approv
 ## 2. Implementation Plan
 
 ### Step 1: Create the Context Loader Utility
-**File:** `apps/orchestrator/src/ai/notionContextLoader.ts`
+**File:** `apps/orchestrator/src/ai/notion-context-loader.ts`
 - Implement `loadNotionContext(input, config)`.
 - Input validation: enforce `notionPageId` is alphanumeric/dash using regex.
 - Hardcode base URL: `https://api.notion.com/v1/blocks/${pageId}/children`.
-- Resolve `secretRef` through injected `tokenResolver`, then use resolved token only for the Notion Authorization header. Do not log or persist the resolved token.
+- Require `config.tokenResolver`; resolve `secretRef` through that injected resolver, then use resolved token only for the Notion Authorization header. Do not log or persist the resolved token.
 - Implement response size limit and timeout.
 - Return structured `NotionContextResult` matching the spec.
 
 ### Step 2: Write Unit Tests (L2 Validation)
-**File:** `apps/orchestrator/src/__tests__/notionContextLoader.test.ts`
+**File:** `apps/orchestrator/src/__tests__/notion-context-loader.test.ts`
 - **TDD Approach (RED -> GREEN -> REFACTOR):**
   - Test 1: Valid Notion Page ID returns combined text.
   - Test 2: Invalid page ID returns `INVALID_PAGE_ID`.
@@ -35,5 +35,5 @@ Please refer to `docs/specs/SPEC-US-013-Notion-Context-Loader.md` for the approv
 **Commands to run:**
 ```powershell
 npm run build
-node --test apps/orchestrator/dist/__tests__/notionContextLoader.test.js
+node --test apps/orchestrator/dist/__tests__/notion-context-loader.test.js
 ```

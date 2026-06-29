@@ -26,6 +26,7 @@ Xây dựng một module `NotionContextLoader` đóng vai trò nạp ngữ cản
 **Interface Input:**
 ```typescript
 export interface NotionLoaderConfig {
+  tokenResolver: (secretRef: string) => Promise<string>; // required injected resolver
   timeoutMs?: number; // default: 5000
   maxResponseBytes?: number; // default: 500000 (500KB)
 }
@@ -50,7 +51,7 @@ export interface NotionContextResult {
 
 **Function Signature:**
 ```typescript
-export async function loadNotionContext(input: NotionLoaderInput, config?: NotionLoaderConfig): Promise<NotionContextResult>;
+export async function loadNotionContext(input: NotionLoaderInput, config: NotionLoaderConfig): Promise<NotionContextResult>;
 ```
 
 ## 4. Security Rules

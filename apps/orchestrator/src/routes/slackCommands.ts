@@ -144,10 +144,6 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
         .update(`${workspaceId}:${slackUserId}:${command}:${text}:${requestTs}`)
         .digest("hex");
 
-      // Slack requires acknowledgement within 3 seconds. Persist and enqueue
-      // asynchronously after returning the immediate acknowledgement.
-      res.status(200).send(SLACK_COMMAND_RESPONSES.dmReplyQueued);
-
       try {
         const txResult = await database.transaction(workspaceId, async (client): Promise<SlackRouteTxResult> => {
           const requestContext: SlackCommandRequestContext = {
@@ -181,12 +177,16 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
         });
 
         if (txResult.type === "success_approve_reject") {
+          res.status(200).send(SLACK_COMMAND_RESPONSES.dmReplyQueued);
           void publishApproveRejectAction(txResult, deps, correlationId, slackUserId);
         } else if (txResult.type === "success_comment_action") {
+          res.status(200).send(SLACK_COMMAND_RESPONSES.dmReplyQueued);
           void publishCommentAction(txResult, deps, correlationId, slackUserId);
         } else if (txResult.type === "success_dm_reply") {
+          res.status(200).send(SLACK_COMMAND_RESPONSES.dmReplyQueued);
           void publishDmReplyAction(txResult, deps, correlationId);
         } else {
+          res.status(200).send(txResult.text);
           logger.info("Slack command completed without enqueue", {
             correlationId,
             resultType: txResult.type,
@@ -199,6 +199,9 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
           error: error instanceof Error ? error.message : String(error),
           correlationId
         });
+        if (!res.headersSent) {
+          res.status(200).send(SLACK_COMMAND_RESPONSES.verificationFailed);
+        }
       }
       })();
     }

@@ -251,6 +251,14 @@ A final answer/report must state:
 - Which behavior was verified by tests vs by inspection.
 - Remaining risk/open item.
 
+Before using `Verified`, `done`, or `production-ready`, also apply:
+
+```text
+docs/ai-sdlc/04_COMPLETION_GATE.md
+```
+
+That file is the fail-closed completion checklist for spec approval, plan approval, baseline, red test evidence, build/lint/test evidence, report evidence, open items, and runtime smoke.
+
 Example:
 
 ```text
@@ -274,4 +282,3 @@ If validation fails:
 3. Fix if in scope.
 4. If unrelated, document exact failing test/command and why it is not addressed.
 5. Never mark task completed solely because code compiles if relevant tests fail.
-
