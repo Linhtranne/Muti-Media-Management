@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const COMMENT_AUTHOR_NAME_MAX_LENGTH = 255;
+
 export const SyncCommentsInputSchema = z.object({
   postRef: z.object({
     jobId: z.string().uuid()
@@ -31,7 +33,7 @@ export type CommentSyncError = z.infer<typeof CommentSyncErrorSchema>;
 
 export const SanitizedCommentSchema = z.object({
   externalId: z.string().min(1),
-  authorName: z.string().max(255),
+  authorName: z.string().max(COMMENT_AUTHOR_NAME_MAX_LENGTH),
   externalUserId: z.string().optional(),
   body: z.string(),
   permalink: z.string().url(),

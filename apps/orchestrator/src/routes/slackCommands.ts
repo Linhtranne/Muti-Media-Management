@@ -12,6 +12,24 @@ import type { Logger } from "../lib/logger.js";
 import type { Database } from "../ledger/postgres.js";
 import type { SlackCommandActionEvent, SlackCommentActionEvent, DirectMessageReplyRequestedEvent } from "@mediaops/shared-contracts";
 
+const SLACK_COMMAND_RESPONSES = {
+  disabled: "Slack commands are currently disabled for this workspace.",
+  verificationFailed: "Command verification failed. Please try again.",
+  duplicateCommand: "This command has already been processed.",
+  approveRejectUnauthorized: "You are not authorized to approve or reject posts.",
+  commentUnauthorized: "You are not authorized to reply or escalate.",
+  dmMemberMissing: "Slack user is not a member of this workspace.",
+  dmReplyUnauthorized: "You are not authorized to reply to direct messages.",
+  dmConversationNotFound: "Conversation not found.",
+  duplicateDmReply: "This reply request has already been processed.",
+  dmReplyQueued: "Processing your request..."
+};
+const SLACK_COMMAND_FAILURE_MESSAGES = {
+  userNotAuthorized: "User not authorized",
+  failedToEnqueueAction: "Failed to enqueue action",
+  rabbitMqPublishingFailed: "RabbitMQ publishing failed"
+};
+
 type SlackRouteTxResult =
   | { type: "duplicate" | "invalid" | "unauthorized"; text: string }
   | { type: "success_approve_reject"; publishEvent: SlackCommandActionEvent; eventId: string }
@@ -69,7 +87,7 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
     (req: Request, res: Response) => {
       void (async () => {
       if (!slackCommandsEnabled) {
-        res.status(200).send("Slack commands are currently disabled for this workspace.");
+        res.status(200).send(SLACK_COMMAND_RESPONSES.disabled);
         return;
       }
 
@@ -100,7 +118,7 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
           });
         }).catch((err) => { logger.error("Failed to audit slack signature rejection", { error: String(err) }); });
 
-        res.status(200).send("Command verification failed. Please try again.");
+        res.status(200).send(SLACK_COMMAND_RESPONSES.verificationFailed);
         return;
       }
 
@@ -114,6 +132,10 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
 
       // 3. Parse command arguments
       const parsed = parser.parse(command, text);
+      if (parsed.error) {
+        res.status(200).send(parsed.message);
+        return;
+      }
 
       // We need an idempotency key to prevent double processing
       const requestTs = Array.isArray(timestampHeader) ? timestampHeader[0] : timestampHeader || "";
@@ -121,6 +143,10 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
         .createHash("sha256")
         .update(`${workspaceId}:${slackUserId}:${command}:${text}:${requestTs}`)
         .digest("hex");
+
+      // Slack requires acknowledgement within 3 seconds. Persist and enqueue
+      // asynchronously after returning the immediate acknowledgement.
+      res.status(200).send(SLACK_COMMAND_RESPONSES.dmReplyQueued);
 
       try {
         const txResult = await database.transaction(workspaceId, async (client): Promise<SlackRouteTxResult> => {
@@ -155,16 +181,17 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
         });
 
         if (txResult.type === "success_approve_reject") {
-          res.status(200).send("Processing your request...");
           void publishApproveRejectAction(txResult, deps, correlationId, slackUserId);
         } else if (txResult.type === "success_comment_action") {
-          res.status(200).send("Processing your request...");
           void publishCommentAction(txResult, deps, correlationId, slackUserId);
         } else if (txResult.type === "success_dm_reply") {
-          res.status(200).send("Processing your request...");
-          void publishDmReplyAction(txResult, deps, correlationId, slackUserId);
+          void publishDmReplyAction(txResult, deps, correlationId);
         } else {
-          res.status(200).send(txResult.text);
+          logger.info("Slack command completed without enqueue", {
+            correlationId,
+            resultType: txResult.type,
+            resultText: txResult.text
+          });
         }
 
       } catch (error) {
@@ -172,10 +199,6 @@ export function createSlackCommandsRouter(deps: SlackCommandsRouterDependencies)
           error: error instanceof Error ? error.message : String(error),
           correlationId
         });
-        
-        if (!res.headersSent) {
-          res.status(200).send("An error occurred. Please try again or contact admin.");
-        }
       }
       })();
     }
@@ -264,7 +287,7 @@ async function handleApproveRejectCommand(
   const existing = await repository.getEventByIdempotencyKey(client, workspaceId, idempotencyKey);
   if (existing) {
     logger.info("Slack command duplicate retry ignored", { correlationId, idempotencyKey });
-    return { type: "duplicate", text: "This command has already been processed." };
+    return { type: "duplicate", text: SLACK_COMMAND_RESPONSES.duplicateCommand };
   }
 
   const parsedPost = parsed as Extract<ParsedSlackCommand, { action: "approve" | "reject" }> | ParseError;
@@ -294,8 +317,8 @@ async function handleApproveRejectCommand(
 
   const role = await repository.getWorkspaceRole(client, workspaceId, slackUserId);
   if (!role || (role !== "manager" && role !== "admin")) {
-    await repository.updateEventStatus(client, event.id, "rejected", "UNAUTHORIZED_ROLE", "User not authorized", role);
-    return { type: "unauthorized", text: "You are not authorized to approve or reject posts." };
+    await repository.updateEventStatus(client, event.id, "rejected", "UNAUTHORIZED_ROLE", SLACK_COMMAND_FAILURE_MESSAGES.userNotAuthorized, role);
+    return { type: "unauthorized", text: SLACK_COMMAND_RESPONSES.approveRejectUnauthorized };
   }
 
   await repository.updateEventStatus(client, event.id, "queued", null, null, role);
@@ -337,7 +360,7 @@ async function handleCommentActionCommand(
   const existing = await commentActionRepository.getEventByIdempotencyKey(client, workspaceId, idempotencyKey);
   if (existing) {
     logger.info("Slack command duplicate retry ignored", { correlationId, idempotencyKey });
-    return { type: "duplicate", text: "This command has already been processed." };
+    return { type: "duplicate", text: SLACK_COMMAND_RESPONSES.duplicateCommand };
   }
 
   const parsedComment = parsed as Extract<ParsedSlackCommand, { action: "reply" | "escalate" }> | ParseError;
@@ -366,8 +389,8 @@ async function handleCommentActionCommand(
 
   const role = await commentActionRepository.getWorkspaceRole(client, workspaceId, slackUserId);
   if (!role || (role !== "manager" && role !== "admin" && role !== "support")) {
-    await commentActionRepository.updateEventStatus(client, event.id, "rejected", "UNAUTHORIZED_ROLE", "User not authorized", role);
-    return { type: "unauthorized", text: "You are not authorized to reply or escalate." };
+    await commentActionRepository.updateEventStatus(client, event.id, "rejected", "UNAUTHORIZED_ROLE", SLACK_COMMAND_FAILURE_MESSAGES.userNotAuthorized, role);
+    return { type: "unauthorized", text: SLACK_COMMAND_RESPONSES.commentUnauthorized };
   }
 
   await commentActionRepository.updateEventStatus(client, event.id, "queued", null, null, role);
@@ -392,8 +415,7 @@ async function handleCommentActionCommand(
 async function publishDmReplyAction(
   txResult: Extract<SlackRouteTxResult, { type: "success_dm_reply" }>,
   deps: SlackCommandsRouterDependencies,
-  correlationId: string,
-  slackUserId: string
+  correlationId: string
 ) {
   const { publisher, database, directMessageRepository, logger, workspaceId } = deps;
   try {
@@ -413,13 +435,13 @@ async function publishDmReplyAction(
           workspaceId,
           txResult.jobId,
           "PUBLISH_FAILED",
-          "Failed to enqueue action"
+          SLACK_COMMAND_FAILURE_MESSAGES.failedToEnqueueAction
         );
         await directMessageRepository.insertAuditLog(client, {
           workspaceId,
           eventType: "DM_REPLY_FAILED",
           entityId: txResult.jobId,
-          metadata: { error: String(pubErr), reason: "RabbitMQ publishing failed" },
+          metadata: { error: String(pubErr), reason: SLACK_COMMAND_FAILURE_MESSAGES.rabbitMqPublishingFailed },
           correlationId
         });
       });
@@ -451,18 +473,18 @@ async function handleDirectMessageReplyCommand(
   // 1. Resolve Slack user in workspace_members
   const member = await directMessageRepository.getWorkspaceMemberBySlackUser(client, workspaceId, slackUserId);
   if (!member) {
-    return { type: "unauthorized", text: "Slack user is not a member of this workspace." };
+    return { type: "unauthorized", text: SLACK_COMMAND_RESPONSES.dmMemberMissing };
   }
 
   // 2. Validate member role: support/manager/admin allowed, creator/viewer blocked
   if (member.role !== "support" && member.role !== "manager" && member.role !== "admin") {
-    return { type: "unauthorized", text: "You are not authorized to reply to direct messages." };
+    return { type: "unauthorized", text: SLACK_COMMAND_RESPONSES.dmReplyUnauthorized };
   }
 
   // 3. Find the conversation by ID
   const conversation = await directMessageRepository.getConversationById(client, workspaceId, parsedDm.conversationId);
   if (!conversation) {
-    return { type: "invalid", text: "Conversation not found." };
+    return { type: "invalid", text: SLACK_COMMAND_RESPONSES.dmConversationNotFound };
   }
 
   // 4. Create reply job idempotently
@@ -474,7 +496,7 @@ async function handleDirectMessageReplyCommand(
   });
 
   if (!job) {
-    return { type: "duplicate", text: "This reply request has already been processed." };
+    return { type: "duplicate", text: SLACK_COMMAND_RESPONSES.duplicateDmReply };
   }
 
   // 5. Audit DM_REPLY_QUEUED

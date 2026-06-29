@@ -9,7 +9,7 @@ import { createAirtableClient } from "./airtable/airtableClient.js";
 import { ApprovedPostWorker } from "./workers/approvedPostWorker.js";
 import { createRabbitMqConsumer } from "./queue/rabbitmqConsumer.js";
 import { GeminiLlmAdapter } from "./ai/llmAdapter.js";
-import { AiComposerWorker } from "./workers/aiComposerWorker.js";
+import { AiComposerWorker } from "./workers/ai-composer-worker.js";
 import { createAiComposerRabbitMqConsumer } from "./queue/aiComposerRabbitmqConsumer.js";
 import { PolicyWorker } from "./workers/policyWorker.js";
 import { createPolicyRabbitMqConsumer } from "./queue/policyRabbitmqConsumer.js";
@@ -44,6 +44,8 @@ import { DirectMessageIngestWorker } from "./workers/directMessageIngestWorker.j
 import { DirectMessageReplyWorker } from "./workers/directMessageReplyWorker.js";
 import { createDirectMessageIngestRabbitmqConsumer } from "./queue/directMessageIngestRabbitmqConsumer.js";
 import { createDirectMessageReplyRabbitmqConsumer } from "./queue/directMessageReplyRabbitmqConsumer.js";
+
+const SCHEDULER_INTERVAL_MS = 60_000;
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,9 +77,7 @@ export async function createServer() {
 
   // MCP integration
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const mcpServerPath = process.env.NODE_ENV === "test" 
-    ? path.join(currentDir, "../../facebook-mcp-server/dist/index.js")
-    : path.join(currentDir, "../../../facebook-mcp-server/dist/index.js");
+  const mcpServerPath = path.join(currentDir, "../../facebook-mcp-server/dist/index.js");
 
   const facebookMcpClient = new FacebookMcpClient(mcpServerPath);
   await facebookMcpClient.connect().catch(err => {
@@ -248,11 +248,11 @@ if (process.env.NODE_ENV !== "test") {
   });
 
   if (env.DM_INBOX_ENABLED === "true") {
-    await directMessageIngestConsumer.start().catch((err: any) => {
+    await directMessageIngestConsumer.start().catch((err: unknown) => {
       logger.error("Failed to start Direct Message Ingest consumer", { error: String(err) });
     });
 
-    await directMessageReplyConsumer.start().catch((err: any) => {
+    await directMessageReplyConsumer.start().catch((err: unknown) => {
       logger.error("Failed to start Direct Message Reply consumer", { error: String(err) });
     });
   } else {
@@ -267,12 +267,16 @@ if (process.env.NODE_ENV !== "test") {
       void mcpPublishScheduler.runPollCycle().catch(err => {
         logger.error("Scheduler run failed", { error: String(err) });
       });
-    }, 60000); // 1 minute
+    }, SCHEDULER_INTERVAL_MS);
   }
 
-  commentSyncScheduler.start();
+  if (env.COMMENT_SYNC_SCHEDULER_ENABLED === "true") {
+    commentSyncScheduler.start();
+  } else {
+    logger.info("CommentSyncScheduler disabled (COMMENT_SYNC_SCHEDULER_ENABLED != true)");
+  }
   
-  await rabbitmqMonitor.start(60000).catch(err => {
+  await rabbitmqMonitor.start(SCHEDULER_INTERVAL_MS).catch(err => {
     logger.error("Failed to start RabbitMQ monitor", { error: String(err) });
   });
 

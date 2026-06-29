@@ -11,6 +11,20 @@ import { type SecretStore } from "../lib/secretStore.js";
 const FB_GRAPH_VERSION = "v22.0";
 const FACEBOOK_INVALID_TOKEN_CODE = 190;
 const MISSING_PERMISSION_CODE = 10;
+const MOCK_PAGE_ID = "mock-facebook-page-001";
+const MOCK_PAGE_NAME = "MediaOps Mock Facebook Page";
+
+function isFacebookMockMode(): boolean {
+  return process.env.FACEBOOK_MOCK_MODE === "true";
+}
+
+function requiredMockScopes(): string[] {
+  return (process.env.FACEBOOK_REQUIRED_SCOPES ??
+    "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement")
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
 
 interface GraphErrorResponse {
   error?: {
@@ -67,6 +81,19 @@ export async function exchangeCodeAndListPages(
   input: ExchangeCodePayload,
   secretStore: SecretStore
 ): Promise<ExchangeCodeResult> {
+  if (isFacebookMockMode()) {
+    const userTokenRef = await secretStore.storeSecret(
+      input.workspaceId,
+      "MOCK_USER_TOKEN",
+      `mock-user-token-${input.workspaceId}`
+    );
+
+    return {
+      pages: [{ pageId: MOCK_PAGE_ID, displayName: MOCK_PAGE_NAME }],
+      userTokenRef
+    };
+  }
+
   const appId = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
 
@@ -151,6 +178,23 @@ export async function connectPage(
   input: ConnectPagePayload,
   secretStore: SecretStore
 ): Promise<ConnectPageResult> {
+  if (isFacebookMockMode()) {
+    await secretStore.resolveSecret(input.userTokenRef);
+    const secretRef = await secretStore.storeSecret(
+      input.workspaceId,
+      `MOCK_PAGE_TOKEN_${input.pageId}`,
+      `mock-page-token-${input.pageId}`
+    );
+
+    return {
+      externalAccountId: input.pageId,
+      displayName: input.pageId === MOCK_PAGE_ID ? MOCK_PAGE_NAME : `Mock Page ${input.pageId}`,
+      scopes: requiredMockScopes(),
+      expiresAt: null,
+      secretRef
+    };
+  }
+
   const userToken = await secretStore.resolveSecret(input.userTokenRef);
 
   // Get the page access token (using the long-lived user token gets a never-expiring page token)
@@ -205,6 +249,14 @@ export async function healthCheckToken(
   input: TokenHealthCheckPayload,
   secretStore: SecretStore
 ): Promise<TokenHealthCheckResult> {
+  if (isFacebookMockMode()) {
+    await secretStore.resolveSecret(input.secretRef);
+    return {
+      status: "valid",
+      lastCheckedAt: new Date().toISOString()
+    };
+  }
+
   let token: string;
   try {
     token = await secretStore.resolveSecret(input.secretRef);

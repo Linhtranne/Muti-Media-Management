@@ -1,3 +1,5 @@
+const SLACK_COMMAND_MESSAGE_MAX_LENGTH = 2000;
+
 export type ParsedSlackCommand =
   | {
       error: false;
@@ -111,7 +113,7 @@ export class SlackCommandParser {
       if (!rawRemainingText) {
         return { error: true, errorCode: "MISSING_MESSAGE", message: "Message is required for replying to a comment" };
       }
-      if (rawRemainingText.length > 2000) {
+      if (rawRemainingText.length > SLACK_COMMAND_MESSAGE_MAX_LENGTH) {
         return { error: true, errorCode: "MESSAGE_TOO_LONG", message: "Message must be less than 2000 characters" };
       }
       return { error: false, action: "reply", interactionId, message: rawRemainingText };
@@ -124,7 +126,7 @@ export class SlackCommandParser {
       if (!rawRemainingText) {
         return { error: true, errorCode: "MISSING_MESSAGE", message: "Message is required for replying to a DM" };
       }
-      if (rawRemainingText.length > 2000) {
+      if (rawRemainingText.length > SLACK_COMMAND_MESSAGE_MAX_LENGTH) {
         return { error: true, errorCode: "MESSAGE_TOO_LONG", message: "Message must be less than 2000 characters" };
       }
       return { error: false, action: "reply_dm", conversationId: rawId, message: rawRemainingText };

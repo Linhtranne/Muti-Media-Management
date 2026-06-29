@@ -1,6 +1,6 @@
 import amqp from "amqplib";
 import type { ChannelModel, ConfirmChannel } from "amqplib";
-import { DirectMessageReplyRequestedEventSchema } from "@mediaops/shared-contracts";
+import { DirectMessageReplyRequestedEventSchema, type DirectMessageReplyRequestedEvent } from "@mediaops/shared-contracts";
 import type { Logger } from "../lib/logger.js";
 import type { DirectMessageReplyWorker } from "../workers/directMessageReplyWorker.js";
 import { CANONICAL_TOPIC_EXCHANGE } from "./topologyConfig.js";
@@ -24,7 +24,7 @@ type SafeConsumeMessage = Omit<amqp.ConsumeMessage, "fields" | "properties"> & {
 
 const queue = "dm.reply.requested";
 const dlqQueue = "dm.reply.requested.dlq";
-const connectRabbitMq = amqp.connect as (url: string) => Promise<any>;
+const connectRabbitMq = amqp.connect as (url: string) => Promise<ChannelModel>;
 
 const MAX_RETRIES = 5;
 
@@ -99,7 +99,7 @@ async function processMessage({
     return;
   }
 
-  const event = validation.data;
+  const event = validation.data as DirectMessageReplyRequestedEvent;
 
   if (event.workspace_id !== workspaceId) {
     logger.warn("Ignoring direct message reply for different workspace", {
@@ -214,9 +214,9 @@ export async function createDirectMessageReplyRabbitmqConsumer(
       await channel.assertQueue(dlqQueue, { durable: true });
       await channel.prefetch(1);
 
-      await channel.consume(queue, async (msg: amqp.ConsumeMessage | null) => {
+      await channel.consume(queue, (msg: amqp.ConsumeMessage | null) => {
         if (!msg || !channel) return;
-        await handleDirectMessageReplyQueueMessage(channel, worker, logger, msg, () => isStopping, workspaceId);
+        void handleDirectMessageReplyQueueMessage(channel, worker, logger, msg, () => isStopping, workspaceId);
       });
 
       logger.info(`Started Direct Message Reply consumer for workspace ${workspaceId} on queue ${queue}`);

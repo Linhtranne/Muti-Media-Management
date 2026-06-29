@@ -4,6 +4,8 @@ import { ZodError } from "zod";
 import type { AirtableWebhookIngestor } from "../services/airtableWebhookIngestor.js";
 import type { Logger } from "../lib/logger.js";
 
+const HTTP_ACCEPTED = 202;
+
 export function createAirtableWebhookRouter(ingestor: AirtableWebhookIngestor, logger: Logger): Router {
   const router = express.Router();
 
@@ -11,7 +13,7 @@ export function createAirtableWebhookRouter(ingestor: AirtableWebhookIngestor, l
     void (async () => {
     try {
       const result = await ingestor.ingest(req.body);
-      res.status(202).json(result);
+      res.status(HTTP_ACCEPTED).json(result);
     } catch (error) {
       if (error instanceof ZodError) {
         res.status(400).json({

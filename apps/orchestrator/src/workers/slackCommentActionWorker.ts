@@ -6,6 +6,9 @@ import type { SlackCommentActionEvent } from "@mediaops/shared-contracts";
 import type { FacebookMcpClient } from "../mcp/facebookMcpClient.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
 
+const UNKNOWN_MCP_ERROR = "Unknown MCP Error";
+const NO_ESCALATION_REASON_PROVIDED = "No reason provided";
+
 export interface SlackCommentActionWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: string;
@@ -147,7 +150,7 @@ export class SlackCommentActionWorker {
       });
 
       if (!mcpResult.success) {
-        await this.markFailed(commandEvent.id, "MCP_ERROR", mcpResult.error || "Unknown MCP Error", correlationId, commandEvent.slack_user_id);
+        await this.markFailed(commandEvent.id, "MCP_ERROR", mcpResult.error || UNKNOWN_MCP_ERROR, correlationId, commandEvent.slack_user_id);
         return { success: false, errorReturn: { action: "ack", status: "mcp_error" } };
       }
 
@@ -181,7 +184,7 @@ export class SlackCommentActionWorker {
   }
 
   private async handleEscalateAlert(commandEvent: CommentActionEvent, interaction: Interaction, correlationId: string, messageId: string) {
-    const alertText = `⚠️ *Interaction Escalated*\nInteraction ID: \`${interaction.id}\`\nReason: ${commandEvent.reason || "No reason provided"}\nEscalated by: <@${commandEvent.slack_user_id}>`;
+    const alertText = `⚠️ *Interaction Escalated*\nInteraction ID: \`${interaction.id}\`\nReason: ${commandEvent.reason || NO_ESCALATION_REASON_PROVIDED}\nEscalated by: <@${commandEvent.slack_user_id}>`;
     try {
       await this.queuePublisher.publishSlackAlert({ text: alertText }, `${commandEvent.id}-alert`, correlationId);
     } catch (error: unknown) {

@@ -28,6 +28,12 @@ describe("FacebookAdminRoutes", () => {
           if (sql.includes("INSERT INTO facebook_oauth_sessions")) {
             return { rows: [] };
           }
+          if (sql.includes("INSERT INTO facebook_oauth_states")) {
+            return { rows: [] };
+          }
+          if (sql.includes("UPDATE facebook_oauth_states")) {
+            return { rows: [{ actor_id: "admin123" }] };
+          }
           return { rows: [{ id: "mock_account_123" }] };
         }
       } as any;
@@ -40,7 +46,7 @@ describe("FacebookAdminRoutes", () => {
   const mockMcpClient: any = {
     async callTool(name: string, args: any) {
       if (name === "generateOAuthUrl") {
-        return { content: [{ type: "text", text: JSON.stringify({ url: "https://mock-oauth.com", state: "mock-state" }) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ url: "https://mock-oauth.com" }) }] };
       }
       if (name === "exchangeCodeAndListPages") {
         return { content: [{ type: "text", text: JSON.stringify({ pages: [], userTokenRef: "env:MOCK_USER_TOKEN" }) }] };
@@ -107,9 +113,11 @@ describe("FacebookAdminRoutes", () => {
   it("AD-04: Exchanges code and lists pages, returns session ID not token", async () => {
     const app = createTestApp(true);
     const res = await request(app)
-      .post("/api/v1/admin/facebook/auth/callback")
-      .set("x-user-id", "admin123")
-      .send({ code: "mock-code" });
+      .get("/api/v1/admin/facebook/auth/callback")
+      .query({
+        code: "mock-code",
+        state: "00000000-0000-4000-8000-000000000001"
+      });
     assert.equal(res.status, 200);
     assert.deepEqual(res.body.pages, []);
     assert.equal(res.body.userTokenRef, undefined);

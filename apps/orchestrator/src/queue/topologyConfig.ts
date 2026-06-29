@@ -38,6 +38,47 @@ export interface QueueTopologyEntry {
   ownerUs: string;
 }
 
+const TTL_HALF_SECOND_MS = 500;
+const TTL_ONE_SECOND_MS = 1000;
+const TTL_TWO_SECONDS_MS = 2000;
+const TTL_FOUR_SECONDS_MS = 4000;
+const TTL_EIGHT_SECONDS_MS = 8000;
+const TTL_SIXTEEN_SECONDS_MS = 16000;
+const TTL_THIRTY_TWO_SECONDS_MS = 32000;
+
+const STANDARD_RETRY_TTL_MS = [
+  TTL_ONE_SECOND_MS,
+  TTL_TWO_SECONDS_MS,
+  TTL_FOUR_SECONDS_MS,
+  TTL_EIGHT_SECONDS_MS,
+  TTL_SIXTEEN_SECONDS_MS
+];
+const SLOW_RETRY_TTL_MS = [
+  TTL_TWO_SECONDS_MS,
+  TTL_FOUR_SECONDS_MS,
+  TTL_EIGHT_SECONDS_MS,
+  TTL_SIXTEEN_SECONDS_MS,
+  TTL_THIRTY_TWO_SECONDS_MS
+];
+const COMMENT_INGEST_RETRY_TTL_MS = [
+  TTL_HALF_SECOND_MS,
+  TTL_ONE_SECOND_MS,
+  TTL_TWO_SECONDS_MS,
+  TTL_FOUR_SECONDS_MS,
+  TTL_EIGHT_SECONDS_MS
+];
+const SHORT_RETRY_TTL_MS = [
+  TTL_ONE_SECOND_MS,
+  TTL_TWO_SECONDS_MS,
+  TTL_FOUR_SECONDS_MS
+];
+const DM_RETRY_TTL_MS = [
+  TTL_ONE_SECOND_MS,
+  TTL_TWO_SECONDS_MS,
+  TTL_FOUR_SECONDS_MS,
+  TTL_EIGHT_SECONDS_MS
+];
+
 /**
  * Full topology inventory for MediaOps Composability.
  * Order: approximate creation order US-002 → US-009 + shared alerting.
@@ -50,7 +91,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "airtable.webhook.approved",
     routingKey: "airtable.post.approved.ingress",
     dlq: "airtable.webhook.approved.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000, 16000],
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "ApprovedPostWorker",
@@ -64,7 +105,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "ai.compose.facebook.requested",
     routingKey: "ai.compose.facebook.requested",
     dlq: "ai.compose.facebook.requested.dlq",
-    retryTtlMs: [2000, 4000, 8000, 16000, 32000],
+    retryTtlMs: SLOW_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "AiComposerWorker",
@@ -78,7 +119,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "policy.evaluate.requested",
     routingKey: "policy.evaluate.requested",
     dlq: "policy.evaluate.requested.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000, 16000],
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "PolicyWorker",
@@ -92,7 +133,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "publish.facebook.requested",
     routingKey: "publish.facebook.requested",
     dlq: "publish.facebook.requested.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000, 16000],
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "McpValidateWorker",
@@ -104,7 +145,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "publish.facebook.validated",
     routingKey: "publish.facebook.validated",
     dlq: "publish.facebook.validated.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000, 16000],
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "McpValidateWorker (output queue — consumed by McpPublishWorker)",
@@ -118,7 +159,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "publish.facebook.execute",
     routingKey: "publish.facebook.execute",
     dlq: "publish.facebook.execute.dlq",
-    retryTtlMs: [2000, 4000, 8000, 16000, 32000],
+    retryTtlMs: SLOW_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "McpPublishWorker",
@@ -132,7 +173,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "comments.facebook.sync.requested",
     routingKey: "comments.facebook.sync.requested",
     dlq: "comments.facebook.sync.requested.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000, 16000],
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "FacebookCommentSyncWorker (sync request)",
@@ -144,7 +185,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "comments.facebook.ingest",
     routingKey: "comments.facebook.ingest",
     dlq: "comments.facebook.ingest.dlq",
-    retryTtlMs: [500, 1000, 2000, 4000, 8000],
+    retryTtlMs: COMMENT_INGEST_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 5,
     workerBinding: "FacebookCommentSyncWorker (ingest)",
@@ -158,7 +199,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "slack.post_approval.requested",
     routingKey: "slack.post_approval.requested",
     dlq: "slack.post_approval.requested.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000, 16000],
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "SlackPostApprovalWorker",
@@ -172,7 +213,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "slack.comment_action.requested",
     routingKey: "slack.comment_action.requested",
     dlq: "slack.comment_action.requested.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000, 16000],
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "SlackCommentActionWorker",
@@ -186,7 +227,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "alerts.slack.send",
     routingKey: "alerts.slack.send",
     dlq: "alerts.slack.send.dlq",
-    retryTtlMs: [1000, 2000, 4000],
+    retryTtlMs: SHORT_RETRY_TTL_MS,
     maxRetries: 3,
     prefetch: 5,
     workerBinding: "SlackAlertWorker (shared)",
@@ -200,7 +241,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "dm.facebook.ingest",
     routingKey: "dm.facebook.ingest",
     dlq: "dm.facebook.ingest.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000],
+    retryTtlMs: DM_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 5,
     workerBinding: "DirectMessageIngestWorker",
@@ -212,7 +253,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "dm.instagram.ingest",
     routingKey: "dm.instagram.ingest",
     dlq: "dm.instagram.ingest.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000],
+    retryTtlMs: DM_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 5,
     workerBinding: "Stub",
@@ -224,7 +265,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "dm.zalo.ingest",
     routingKey: "dm.zalo.ingest",
     dlq: "dm.zalo.ingest.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000],
+    retryTtlMs: DM_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 5,
     workerBinding: "Stub",
@@ -236,7 +277,7 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     queue: "dm.reply.requested",
     routingKey: "dm.reply.requested",
     dlq: "dm.reply.requested.dlq",
-    retryTtlMs: [1000, 2000, 4000, 8000],
+    retryTtlMs: DM_RETRY_TTL_MS,
     maxRetries: 5,
     prefetch: 1,
     workerBinding: "DirectMessageReplyWorker",

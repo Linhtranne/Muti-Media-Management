@@ -67,6 +67,13 @@ export async function syncCommentsHandler(
     };
   }
 
+  if (process.env.FACEBOOK_MOCK_MODE === "true") {
+    return {
+      passed: true,
+      comments: []
+    };
+  }
+
   try {
     const response = await graphClient.getComments(input.externalPostId, accessToken);
 
@@ -102,24 +109,33 @@ export async function syncCommentsHandler(
 
 function mapGraphError(error: NonNullable<GraphCommentsResponse["error"]>): CommentSyncError {
   const code = error.code || 0;
+  const GRAPH_RATE_LIMIT_SUBCODE = 17;
+  const GRAPH_RATE_LIMIT_PAGE_CODE = 32;
+  const GRAPH_RATE_LIMIT_CALLS_CODE = 613;
+  const GRAPH_AUTH_EXPIRED_CODE = 190;
+  const GRAPH_AUTH_INVALID_SESSION_CODE = 102;
+  const RATE_LIMIT_ERROR_CODES = [4, GRAPH_RATE_LIMIT_SUBCODE, GRAPH_RATE_LIMIT_PAGE_CODE, GRAPH_RATE_LIMIT_CALLS_CODE];
+  const AUTH_ERROR_CODES = [GRAPH_AUTH_EXPIRED_CODE, GRAPH_AUTH_INVALID_SESSION_CODE];
+  const PERMISSION_ERROR_CODES = [200, 10];
+  const TRANSIENT_ERROR_CODES = [1, 2];
   
   // Rate limit heuristics
-  if (code === 4 || code === 17 || code === 32 || code === 613) {
+  if (RATE_LIMIT_ERROR_CODES.includes(code)) {
     return { code: 'PLATFORM_RATE_LIMIT', detail: error.message || 'Rate limited' };
   }
   
   // Auth failures
-  if (code === 190 || code === 102) {
+  if (AUTH_ERROR_CODES.includes(code)) {
     return { code: 'PLATFORM_AUTH_FAILED', detail: error.message || 'Session expired or invalid' };
   }
   
   // Permission denied
-  if (code === 200 || code === 10) {
+  if (PERMISSION_ERROR_CODES.includes(code)) {
     return { code: 'PLATFORM_PERMISSION_DENIED', detail: error.message || 'Insufficient permissions' };
   }
   
   // Transient/Network
-  if (code === 1 || code === 2) {
+  if (TRANSIENT_ERROR_CODES.includes(code)) {
     return { code: 'PLATFORM_TRANSIENT_ERROR', detail: error.message || 'Temporary platform error' };
   }
 

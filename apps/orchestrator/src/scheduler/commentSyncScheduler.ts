@@ -5,6 +5,13 @@ import type { Logger } from "../lib/logger.js";
 import { randomUUID } from "node:crypto";
 import type { CommentSyncRequestedEvent } from "@mediaops/shared-contracts";
 
+const DEFAULT_POLL_INTERVAL_MINUTES = 5;
+const SECONDS_PER_MINUTE = 60;
+const MILLISECONDS_PER_SECOND = 1000;
+const DEFAULT_POLL_INTERVAL_MS = DEFAULT_POLL_INTERVAL_MINUTES * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND;
+const DEFAULT_SYNC_BATCH_SIZE = 50;
+const HOURLY_IDEMPOTENCY_TIMESTAMP_LENGTH = 13;
+
 export class CommentSyncScheduler {
   private timer: NodeJS.Timeout | null = null;
 
@@ -13,7 +20,7 @@ export class CommentSyncScheduler {
     private readonly repo: CommentSyncSchedulerRepository,
     private readonly publisher: QueuePublisher,
     private readonly logger: Logger,
-    private readonly pollIntervalMs: number = 5 * 60 * 1000 // 5 minutes default
+    private readonly pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS
   ) {}
 
   start() {
@@ -46,7 +53,7 @@ export class CommentSyncScheduler {
     try {
       await client.query("BEGIN");
       
-      const targets = await this.repo.findJobsToSync(client, 50);
+      const targets = await this.repo.findJobsToSync(client, DEFAULT_SYNC_BATCH_SIZE);
       if (targets.length === 0) {
         await client.query("ROLLBACK");
         return;
@@ -67,7 +74,7 @@ export class CommentSyncScheduler {
           job_id: target.id,
           channel_account_id: target.channel_account_id,
           external_post_id: target.external_post_id,
-          idempotency_key: `sync:${target.id}:${new Date().toISOString().substring(0, 13)}`, // Hourly idempotency or just eventId
+          idempotency_key: `sync:${target.id}:${new Date().toISOString().substring(0, HOURLY_IDEMPOTENCY_TIMESTAMP_LENGTH)}`,
           correlation_id: correlationId,
           created_at: new Date().toISOString()
         };

@@ -1,6 +1,6 @@
 import amqp from "amqplib";
 import type { ChannelModel, ConfirmChannel } from "amqplib";
-import { DirectMessageIngestEventSchema } from "@mediaops/shared-contracts";
+import { DirectMessageIngestEventSchema, type DirectMessageIngestEvent } from "@mediaops/shared-contracts";
 import type { Logger } from "../lib/logger.js";
 import type { DirectMessageIngestWorker } from "../workers/directMessageIngestWorker.js";
 import { CANONICAL_TOPIC_EXCHANGE } from "./topologyConfig.js";
@@ -24,7 +24,7 @@ type SafeConsumeMessage = Omit<amqp.ConsumeMessage, "fields" | "properties"> & {
 
 const queue = "dm.facebook.ingest";
 const dlqQueue = "dm.facebook.ingest.dlq";
-const connectRabbitMq = amqp.connect as (url: string) => Promise<any>;
+const connectRabbitMq = amqp.connect as (url: string) => Promise<ChannelModel>;
 
 const MAX_RETRIES = 5;
 
@@ -88,7 +88,7 @@ export async function handleDirectMessageIngestQueueMessage(
       return;
     }
 
-    const event = validation.data;
+    const event = validation.data as DirectMessageIngestEvent;
 
     if (event.workspace_id !== workspaceId) {
       logger.warn("Ignoring direct message ingest for different workspace", {
@@ -198,7 +198,7 @@ export async function createDirectMessageIngestRabbitmqConsumer(
     async start(): Promise<void> {
       logger.info("Initializing Facebook Direct Message Ingest RabbitMQ consumer...");
       connection = await connectRabbitMq(rabbitmqUrl);
-      channel = await connection!.createConfirmChannel();
+      channel = await connection.createConfirmChannel();
 
       await channel.assertExchange(CANONICAL_TOPIC_EXCHANGE, "topic", { durable: true });
       await channel.assertQueue(queue, { durable: true });
@@ -206,9 +206,9 @@ export async function createDirectMessageIngestRabbitmqConsumer(
       await channel.assertQueue(dlqQueue, { durable: true });
       await channel.prefetch(5);
 
-      await channel.consume(queue, async (msg: amqp.ConsumeMessage | null) => {
+      await channel.consume(queue, (msg: amqp.ConsumeMessage | null) => {
         if (!msg || !channel) return;
-        await handleDirectMessageIngestQueueMessage(channel, worker, logger, msg, () => isStopping, workspaceId);
+        void handleDirectMessageIngestQueueMessage(channel, worker, logger, msg, () => isStopping, workspaceId);
       });
 
       logger.info(`Started Direct Message Ingest consumer for workspace ${workspaceId} on queue ${queue}`);

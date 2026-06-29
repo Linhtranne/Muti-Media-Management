@@ -36,6 +36,14 @@ export class AirtableNetworkError extends Error {
 const CONNECT_TIMEOUT_MS = 10_000;
 const RESPONSE_TIMEOUT_MS = 20_000;
 const TOTAL_TIMEOUT_MS = CONNECT_TIMEOUT_MS + RESPONSE_TIMEOUT_MS;
+const HTTP_BAD_GATEWAY = 502;
+const HTTP_SERVICE_UNAVAILABLE = 503;
+const AIRTABLE_SERVICE_UNAVAILABLE_STATUS_CODES = [HTTP_BAD_GATEWAY, HTTP_SERVICE_UNAVAILABLE];
+const NOTION_BRIEF_URL_FIELD_NAME = "Notion Brief URL";
+
+function isAirtableServiceUnavailable(status: number): boolean {
+  return AIRTABLE_SERVICE_UNAVAILABLE_STATUS_CODES.includes(status);
+}
 
 export interface AirtableClient {
   getPostRecord(recordId: string): Promise<AirtableReloadedRecord>;
@@ -100,7 +108,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
         }
 
-        if (response.status === 502 || response.status === 503) {
+        if (isAirtableServiceUnavailable(response.status)) {
           throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
         }
 
@@ -154,7 +162,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
         }
 
-        if (response.status === 502 || response.status === 503) {
+        if (isAirtableServiceUnavailable(response.status)) {
           throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
         }
 
@@ -168,7 +176,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
 
         const body = await response.json() as { fields?: Record<string, unknown> };
         const fields = body.fields || {};
-        const notionBriefUrl = fields["Notion Brief URL"] || fields.notion_brief_url;
+        const notionBriefUrl = fields[NOTION_BRIEF_URL_FIELD_NAME] || fields.notion_brief_url;
         const campaignObjective = fields.objective || fields.campaign_objective || fields.Objective;
 
         return {
@@ -230,7 +238,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
         }
 
-        if (response.status === 502 || response.status === 503) {
+        if (isAirtableServiceUnavailable(response.status)) {
           throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
         }
 
@@ -314,7 +322,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
         }
 
-        if (response.status === 502 || response.status === 503) {
+        if (isAirtableServiceUnavailable(response.status)) {
           throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
         }
 
@@ -370,7 +378,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
         }
 
-        if (response.status === 502 || response.status === 503) {
+        if (isAirtableServiceUnavailable(response.status)) {
           throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
         }
 
@@ -435,7 +443,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
         }
 
-        if (response.status === 502 || response.status === 503) {
+        if (isAirtableServiceUnavailable(response.status)) {
           throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
         }
 
@@ -487,7 +495,7 @@ export function createAirtableClient(apiKey: string, baseId: string): AirtableCl
           throw new AirtableRateLimitError("Airtable API rate limit exceeded (HTTP 429)");
         }
 
-        if (response.status === 502 || response.status === 503) {
+        if (isAirtableServiceUnavailable(response.status)) {
           throw new AirtableServiceError(`Airtable service unavailable (HTTP ${response.status})`);
         }
 

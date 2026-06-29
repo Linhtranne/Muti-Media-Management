@@ -12,9 +12,15 @@
     "typecheck": "tsc -b --pretty false",
     "typecheck:test": "npm run typecheck:test -w packages/shared-contracts && npm run typecheck:test -w apps/orchestrator",
     "test": "node run-tests.mjs",
-    "lint": "tsc -b --pretty false",
+    "lint": "npm run typecheck && npm run lint:eslint",
     "lint:eslint": "eslint .",
-    "lint:eslint:fix": "eslint . --fix"
+    "lint:eslint:fix": "eslint . --fix",
+    "start:orchestrator": "node --env-file=.env.local apps/orchestrator/dist/server.js",
+    "start:ngrok": "ngrok http 3000",
+    "seed:slack-admin": "node seed-workspace-member.cjs",
+    "rabbitmq:reset-slack": "node delete-rabbit-queues.cjs",
+    "db:apply": "node apply-migration.cjs",
+    "verify:db": "npx @insforge/cli db query \"SELECT 1 AS ok\""
   },
   "dependencies": {
     "amqplib": "^0.10.4",

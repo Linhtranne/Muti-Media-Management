@@ -8,6 +8,8 @@ import type { ChannelAccountAdminRepository } from "../ledger/channelAccountAdmi
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
 import type { CommentRiskClassifier } from "../services/commentRiskClassifier.js";
 
+const COMMENT_PREVIEW_MAX_LENGTH = 80;
+
 export interface SyncRequestQueueConsumerChannel {
   assertExchange(exchange: string, type: string, options: { durable: boolean }): Promise<unknown>;
   assertQueue(queue: string, options: { durable: boolean }): Promise<unknown>;
@@ -141,7 +143,7 @@ async function publishIngestEvents(
         name: comment.authorName,
         external_user_id: comment.externalUserId
       },
-      comment_preview: comment.body.substring(0, 80),
+      comment_preview: comment.body.substring(0, COMMENT_PREVIEW_MAX_LENGTH),
       risk_code: riskCode,
       permalink: comment.permalink,
       created_at_platform: comment.createdAtPlatform,

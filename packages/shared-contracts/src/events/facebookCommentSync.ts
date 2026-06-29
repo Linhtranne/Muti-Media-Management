@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+const AUTHOR_NAME_MAX_LENGTH = 255;
+const COMMENT_PREVIEW_MAX_LENGTH = 80;
+
 const forbiddenPayloadFields = [
   "access_token",
   "secret_ref",
@@ -42,10 +45,10 @@ export const CommentIngestEventSchema = z.object({
   external_post_id:       z.string().min(1),
   external_comment_id:    z.string().min(1),
   author_ref:             z.object({
-                            name:             z.string().max(255),
+                            name:             z.string().max(AUTHOR_NAME_MAX_LENGTH),
                             external_user_id: z.string().optional()
                           }),
-  comment_preview:        z.string().max(80),
+  comment_preview:        z.string().max(COMMENT_PREVIEW_MAX_LENGTH),
   risk_code:              z.enum(["NORMAL", "CRISIS"]),
   permalink:              z.string().url(),
   created_at_platform:    z.string().datetime(),

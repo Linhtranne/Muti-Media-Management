@@ -13,7 +13,7 @@ export interface Conversation {
   platform: ConversationPlatform;
   channel_account_id: string;
   external_thread_id: string;
-  customer_ref: Record<string, any>;
+  customer_ref: Record<string, unknown>;
   customer_display_name: string | null;
   status: ConversationStatus;
   assigned_to_member_id: string | null;
@@ -33,7 +33,7 @@ export interface ConversationMessage {
   sender_type: MessageSenderType;
   body: string | null;
   body_redacted: string | null;
-  attachments_ref: any[];
+  attachments_ref: unknown[];
   created_at_platform: Date;
   created_at: Date;
 }
@@ -47,7 +47,7 @@ export interface ReplyJob {
   reply_body: string;
   status: ReplyJobStatus;
   idempotency_key: string;
-  platform_result_ref: Record<string, any>;
+  platform_result_ref: Record<string, unknown>;
   error_code: string | null;
   error_message: string | null;
   created_at: Date;
@@ -70,7 +70,7 @@ export class DirectMessageRepository {
       platform: ConversationPlatform;
       channelAccountId: string;
       externalThreadId: string;
-      customerRef: Record<string, any>;
+      customerRef: Record<string, unknown>;
       customerDisplayName: string | null;
       status?: ConversationStatus;
       assignedToMemberId?: string | null;
@@ -167,7 +167,7 @@ export class DirectMessageRepository {
       senderType: MessageSenderType;
       body: string | null;
       bodyRedacted: string | null;
-      attachmentsRef: any[];
+      attachmentsRef: unknown[];
       createdAtPlatform: Date;
     }
   ): Promise<ConversationMessage | null> {
@@ -273,7 +273,7 @@ export class DirectMessageRepository {
     workspaceId: string,
     jobId: string,
     messageId: string | null,
-    platformResultRef: Record<string, any>
+    platformResultRef: Record<string, unknown>
   ): Promise<void> {
     await client.query(
       `UPDATE direct_message_reply_jobs
@@ -347,7 +347,7 @@ export class DirectMessageRepository {
       workspaceId: string;
       eventType: string;
       entityId: string;
-      metadata: Record<string, any>;
+      metadata: Record<string, unknown>;
       correlationId: string;
       actorId?: string;
     }

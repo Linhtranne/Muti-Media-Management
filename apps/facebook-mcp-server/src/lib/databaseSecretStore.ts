@@ -3,6 +3,8 @@ import pg from "pg";
 import crypto from "node:crypto";
 
 const ALGORITHM = "aes-256-gcm";
+const AES_256_KEY_BYTES = 32;
+const AES_GCM_IV_BYTES = 12;
 
 interface SecretRow {
   ciphertext: string;
@@ -26,7 +28,7 @@ export class DatabaseSecretStore implements SecretStore {
     // We expect a 32-byte key for AES-256-GCM. 
     // It can be provided as a base64 string or 32-character string.
     this.encryptionKey = Buffer.from(keyString, 'base64');
-    if (this.encryptionKey.length !== 32) {
+    if (this.encryptionKey.length !== AES_256_KEY_BYTES) {
       throw new Error("SECRET_ENCRYPTION_KEY must be a 32-byte base64 encoded string");
     }
 
@@ -42,7 +44,7 @@ export class DatabaseSecretStore implements SecretStore {
   }
 
   private encrypt(text: string): string {
-    const iv = crypto.randomBytes(12);
+    const iv = crypto.randomBytes(AES_GCM_IV_BYTES);
     const cipher = crypto.createCipheriv(ALGORITHM, this.encryptionKey, iv);
     
     let encrypted = cipher.update(text, 'utf8', 'base64');
@@ -83,7 +85,10 @@ export class DatabaseSecretStore implements SecretStore {
     
     try {
       await client.query('BEGIN');
-      await client.query(`SET LOCAL app.current_workspace_id = $1`, [workspaceId]);
+      await client.query(
+        `SELECT set_config('app.current_workspace_id', $1, true)`,
+        [workspaceId]
+      );
       
       const result = await client.query<SecretRow>(
         `SELECT ciphertext, status FROM secret_references WHERE id = $1`,
@@ -117,7 +122,10 @@ export class DatabaseSecretStore implements SecretStore {
     try {
       await client.query('BEGIN');
       // Setup workspace context for RLS
-      await client.query(`SET LOCAL app.current_workspace_id = $1`, [workspaceId]);
+      await client.query(
+        `SELECT set_config('app.current_workspace_id', $1, true)`,
+        [workspaceId]
+      );
 
       const result = await client.query<InsertSecretRow>(
         `

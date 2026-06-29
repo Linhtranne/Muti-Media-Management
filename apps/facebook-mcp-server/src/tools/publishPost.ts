@@ -1,6 +1,8 @@
 import { type PublishPostInput, type PublishPostResult, type McpPublishError } from "@mediaops/shared-contracts";
 import { type SecretStore } from "../lib/secretStore.js";
 
+const UNKNOWN_CREDENTIAL_ERROR = "Unknown credential error";
+
 // Basic wrapper for testability
 interface GraphFeedPostResult {
   id: string;
@@ -81,12 +83,23 @@ export async function publishPostHandler(
   try {
     accessToken = await secretStore.resolveSecret(input.secretRef);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown credential error";
+    const message = error instanceof Error ? error.message : UNKNOWN_CREDENTIAL_ERROR;
     errors.push({
       code: "SECRET_UNAVAILABLE",
       detail: `Failed to resolve credentials: ${message}`
     });
     return { passed: false, errors };
+  }
+
+  if (process.env.FACEBOOK_MOCK_MODE === "true") {
+    return {
+      passed: true,
+      externalPostId: `mock-post-${input.jobRef.jobId}`,
+      publishedAt: new Date().toISOString(),
+      platformResponseSummary: {
+        id: `mock-post-${input.jobRef.jobId}`
+      }
+    };
   }
 
   // Build message

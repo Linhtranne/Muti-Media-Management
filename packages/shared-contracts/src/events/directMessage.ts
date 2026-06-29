@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { findForbiddenFields, isForbiddenKey } from "./envelope.js";
 
+const DM_BODY_PREVIEW_MAX_LENGTH = 80;
+
 // ============================================================================
 // CONVERSATION STATUS SCHEMA
 // ============================================================================
@@ -15,7 +17,7 @@ export const ConversationStatusSchema = z.enum([
 export type ConversationStatus = z.infer<typeof ConversationStatusSchema>;
 
 // Helper to refine and block forbidden fields recursively
-function refineForbiddenFields(schema: z.ZodTypeAny) {
+function refineForbiddenFields<T extends z.ZodTypeAny>(schema: T) {
   return schema.superRefine((value, ctx) => {
     // Check top-level
     if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -65,14 +67,36 @@ export const DirectMessageIngestEventSchema = refineForbiddenFields(
         name: z.string().min(1),
         external_user_id: z.string().optional()
       }),
-      body_preview: z.string().max(80),
+      body_preview: z.string().max(DM_BODY_PREVIEW_MAX_LENGTH),
       created_at_platform: z.string().datetime(),
       has_attachments: z.boolean()
     }).strict()
   }).strict()
 );
 
-export type DirectMessageIngestEvent = z.infer<typeof DirectMessageIngestEventSchema>;
+export interface DirectMessageIngestEvent {
+  event_id: string;
+  event_type: "dm.facebook.ingest" | "dm.instagram.ingest" | "dm.zalo.ingest";
+  event_version: 1;
+  workspace_id: string;
+  idempotency_key: string;
+  correlation_id: string;
+  causation_id?: string;
+  created_at: string;
+  payload: {
+    platform: "facebook" | "instagram" | "zalo";
+    channel_account_id: string;
+    external_thread_id: string;
+    external_message_id: string;
+    customer_ref: {
+      name: string;
+      external_user_id?: string;
+    };
+    body_preview: string;
+    created_at_platform: string;
+    has_attachments: boolean;
+  };
+}
 
 export const DirectMessageReplyRequestedEventSchema = refineForbiddenFields(
   z.object({
@@ -91,7 +115,20 @@ export const DirectMessageReplyRequestedEventSchema = refineForbiddenFields(
   }).strict()
 );
 
-export type DirectMessageReplyRequestedEvent = z.infer<typeof DirectMessageReplyRequestedEventSchema>;
+export interface DirectMessageReplyRequestedEvent {
+  event_id: string;
+  event_type: "dm.reply.requested";
+  event_version: 1;
+  workspace_id: string;
+  idempotency_key: string;
+  correlation_id: string;
+  causation_id?: string;
+  created_at: string;
+  payload: {
+    reply_job_id: string;
+    actor_id: string;
+  };
+}
 
 // ============================================================================
 // MCP TOOL SCHEMAS
@@ -107,7 +144,12 @@ export const GetDirectMessageInputSchema = z.object({
   secret_ref: z.string().min(1)
 }).strict();
 
-export type GetDirectMessageInput = z.infer<typeof GetDirectMessageInputSchema>;
+export interface GetDirectMessageInput {
+  channel_account_id: string;
+  external_thread_id: string;
+  external_message_id: string;
+  secret_ref: string;
+}
 
 export const GetDirectMessageResultSchema = refineForbiddenFields(
   z.object({
@@ -128,7 +170,20 @@ export const GetDirectMessageResultSchema = refineForbiddenFields(
   }).strict()
 );
 
-export type GetDirectMessageResult = z.infer<typeof GetDirectMessageResultSchema>;
+export interface GetDirectMessageResult {
+  body: string;
+  body_redacted: string;
+  attachments_ref: Array<{
+    type: string;
+    url_ref: string;
+    id?: string;
+  }>;
+  sender_metadata: {
+    name: string;
+    external_user_id?: string;
+  };
+  created_at_platform: string;
+}
 
 export const SendDirectMessageInputSchema = z.object({
   channel_account_id: z.string().uuid(),
@@ -138,7 +193,13 @@ export const SendDirectMessageInputSchema = z.object({
   secret_ref: z.string().min(1)
 }).strict();
 
-export type SendDirectMessageInput = z.infer<typeof SendDirectMessageInputSchema>;
+export interface SendDirectMessageInput {
+  channel_account_id: string;
+  external_thread_id: string;
+  reply_body: string;
+  idempotency_key: string;
+  secret_ref: string;
+}
 
 export const SendDirectMessageResultSchema = refineForbiddenFields(
   z.object({
@@ -148,4 +209,8 @@ export const SendDirectMessageResultSchema = refineForbiddenFields(
   }).strict()
 );
 
-export type SendDirectMessageResult = z.infer<typeof SendDirectMessageResultSchema>;
+export interface SendDirectMessageResult {
+  success: boolean;
+  external_message_id?: string;
+  error?: string;
+}

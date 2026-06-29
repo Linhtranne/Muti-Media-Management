@@ -59,47 +59,101 @@ function extractToolText(response: McpToolResponse): string {
 export class FacebookMcpClient {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
+  private connectionPromise: Promise<void> | null = null;
 
   constructor(private readonly serverPath: string) {}
 
-  async connect() {
+  async connect(): Promise<void> {
     if (this.client) return;
+    if (this.connectionPromise) return this.connectionPromise;
 
-    this.transport = new StdioClientTransport({
+    this.connectionPromise = this.openConnection();
+    try {
+      await this.connectionPromise;
+    } finally {
+      this.connectionPromise = null;
+    }
+  }
+
+  private async openConnection(): Promise<void> {
+    const mcpEnv = Object.fromEntries(
+      [
+        "NODE_ENV",
+        "DATABASE_URL",
+        "SECRET_STORE_PROVIDER",
+        "SECRET_ENCRYPTION_KEY",
+        "FACEBOOK_APP_ID",
+        "FACEBOOK_APP_SECRET",
+        "FACEBOOK_REQUIRED_SCOPES",
+        "FACEBOOK_MOCK_MODE",
+        "MOCK_ACCESS_TOKEN"
+      ]
+        .map((name) => [name, process.env[name]])
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    );
+
+    const transport = new StdioClientTransport({
       command: "node",
-      args: [this.serverPath]
+      args: [this.serverPath],
+      env: mcpEnv
     });
 
-    this.client = new Client({
+    const client = new Client({
       name: "orchestrator-client",
       version: "0.1.0"
     }, {
       capabilities: {}
     });
 
-    await this.client.connect(this.transport);
+    try {
+      await client.connect(transport);
+      this.transport = transport;
+      this.client = client;
+    } catch (error) {
+      await client.close().catch(() => undefined);
+      await transport.close().catch(() => undefined);
+      this.transport = null;
+      this.client = null;
+      throw error;
+    }
   }
 
   async disconnect() {
-    if (this.client) {
-      await this.client.close();
-      this.client = null;
-    }
+    const client = this.client;
+    const transport = this.transport;
+    this.client = null;
     this.transport = null;
+
+    await client?.close().catch(() => undefined);
+    await transport?.close().catch(() => undefined);
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    const client = await this.getConnectedClient();
+
+    try {
+      return await client.callTool({ name, arguments: args });
+    } catch (error) {
+      if (!this.isDisconnectedError(error)) throw error;
+
+      await this.disconnect();
+      const reconnectedClient = await this.getConnectedClient();
+      return reconnectedClient.callTool({ name, arguments: args });
+    }
+  }
+
+  private async getConnectedClient(): Promise<Client> {
+    await this.connect();
     if (!this.client) throw new Error("MCP Client not connected");
-    return this.client.callTool({ name, arguments: args });
+    return this.client;
+  }
+
+  private isDisconnectedError(error: unknown): boolean {
+    return error instanceof Error && /not connected|connection closed/i.test(error.message);
   }
 
   async validatePost(input: ValidatePostInput): Promise<ValidatePostResult> {
-    if (!this.client) throw new Error("MCP Client not connected");
-
-    const response = await this.client.callTool({
-      name: "validatePost",
-      arguments: input
-    });
+    const response = await this.callTool("validatePost", input);
 
     const textContent = extractToolText(response as McpToolResponse);
 
@@ -107,12 +161,7 @@ export class FacebookMcpClient {
   }
 
   async getRateLimitStatus(input: GetRateLimitStatusInput): Promise<RateLimitStatusResult> {
-    if (!this.client) throw new Error("MCP Client not connected");
-
-    const response = await this.client.callTool({
-      name: "getRateLimitStatus",
-      arguments: input
-    });
+    const response = await this.callTool("getRateLimitStatus", input);
 
     const textContent = extractToolText(response as McpToolResponse);
 
@@ -120,12 +169,7 @@ export class FacebookMcpClient {
   }
 
   async publishPost(input: PublishPostInput): Promise<PublishPostResult> {
-    if (!this.client) throw new Error("MCP Client not connected");
-
-    const response = await this.client.callTool({
-      name: "publishPost",
-      arguments: input
-    });
+    const response = await this.callTool("publishPost", input);
 
     const textContent = extractToolText(response as McpToolResponse);
 
@@ -133,12 +177,7 @@ export class FacebookMcpClient {
   }
 
   async replyComment(input: ReplyCommentInput): Promise<ReplyCommentResult> {
-    if (!this.client) throw new Error("MCP Client not connected");
-
-    const response = await this.client.callTool({
-      name: "replyComment",
-      arguments: input
-    });
+    const response = await this.callTool("replyComment", input);
 
     const textContent = extractToolText(response as McpToolResponse);
 
@@ -146,12 +185,7 @@ export class FacebookMcpClient {
   }
 
   async syncComments(input: SyncCommentsInput): Promise<SyncCommentsResult> {
-    if (!this.client) throw new Error("MCP Client not connected");
-
-    const response = await this.client.callTool({
-      name: "syncComments",
-      arguments: input
-    });
+    const response = await this.callTool("syncComments", input);
 
     const textContent = extractToolText(response as McpToolResponse);
 
@@ -159,28 +193,18 @@ export class FacebookMcpClient {
   }
 
   async getDirectMessage(input: GetDirectMessageInput): Promise<GetDirectMessageResult> {
-    if (!this.client) throw new Error("MCP Client not connected");
-
-    const response = await this.client.callTool({
-      name: "get_direct_message",
-      arguments: input
-    });
+    const response = await this.callTool("get_direct_message", { ...input });
 
     const textContent = extractToolText(response as McpToolResponse);
 
-    return GetDirectMessageResultSchema.parse(JSON.parse(textContent));
+    return GetDirectMessageResultSchema.parse(JSON.parse(textContent) as unknown) as GetDirectMessageResult;
   }
 
   async sendDirectMessage(input: SendDirectMessageInput): Promise<SendDirectMessageResult> {
-    if (!this.client) throw new Error("MCP Client not connected");
-
-    const response = await this.client.callTool({
-      name: "send_direct_message",
-      arguments: input
-    });
+    const response = await this.callTool("send_direct_message", { ...input });
 
     const textContent = extractToolText(response as McpToolResponse);
 
-    return SendDirectMessageResultSchema.parse(JSON.parse(textContent));
+    return SendDirectMessageResultSchema.parse(JSON.parse(textContent) as unknown) as SendDirectMessageResult;
   }
 }

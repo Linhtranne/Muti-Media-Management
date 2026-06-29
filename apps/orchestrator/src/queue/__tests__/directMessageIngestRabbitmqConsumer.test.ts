@@ -11,7 +11,7 @@ describe("DirectMessageIngestRabbitmqConsumer", () => {
       "ws-1"
     );
     assert.ok(consumer);
-    assert.ok(consumer.start);
-    assert.ok(consumer.stop);
+    assert.strictEqual(typeof consumer.start, "function");
+    assert.strictEqual(typeof consumer.stop, "function");
   });
 });

@@ -1,10 +1,17 @@
 import { type DirectMessageReplyRequestedEvent } from "@mediaops/shared-contracts";
 import { type DirectMessageRepository } from "../ledger/directMessageRepository.js";
+import { type ReplyJob } from "../ledger/directMessageRepository.js";
 import { type FacebookMcpClient } from "../mcp/facebookMcpClient.js";
 import { type Database } from "../ledger/postgres.js";
 import { type QueuePublisher } from "../queue/rabbitmqPublisher.js";
 import { type Logger } from "../lib/logger.js";
 import { redact } from "../lib/redact.js";
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+const UNKNOWN_MCP_SEND_ERROR = "Unknown MCP send error";
 
 export interface ReplyWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
@@ -36,7 +43,7 @@ export class DirectMessageReplyWorker {
     const replyJobId = message.payload.reply_job_id;
 
     // 1. Load and claim job atomically — Bug #3 fix: WHERE status IN ('received','queued')
-    let replyJob: import("../ledger/directMessageRepository.js").ReplyJob | null = null;
+    let replyJob: ReplyJob | null = null;
     let jobNotFound = false;
     try {
       const result = await this.database.transaction(this.workspaceId, async (client) => {
@@ -52,9 +59,10 @@ export class DirectMessageReplyWorker {
       } else {
         replyJob = result;
       }
-    } catch (err: any) {
-      this.logger.error("Failed to load/claim DM reply job in worker", { messageId, jobId: replyJobId, error: err.message });
-      return { action: "nack_requeue", status: "db_error", error: err.message };
+    } catch (err: unknown) {
+      const errorMessage = getErrorMessage(err);
+      this.logger.error("Failed to load/claim DM reply job in worker", { messageId, jobId: replyJobId, error: errorMessage });
+      return { action: "nack_requeue", status: "db_error", error: errorMessage };
     }
 
     if (jobNotFound) {
@@ -83,9 +91,10 @@ export class DirectMessageReplyWorker {
       conversation = await this.database.transaction(this.workspaceId, async (client) => {
         return await this.dmRepo.getConversationById(client, this.workspaceId, job.conversation_id);
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = getErrorMessage(err);
       this.logger.error("Failed to load conversation for DM reply job", { messageId, conversationId: job.conversation_id });
-      return { action: "nack_requeue", status: "db_error", error: err.message };
+      return { action: "nack_requeue", status: "db_error", error: errorMessage };
     }
 
     if (!conversation) {
@@ -95,16 +104,17 @@ export class DirectMessageReplyWorker {
     }
 
     // 3. Load secret_ref for the channel account (Bug #1 fix: use dbsecret ref, not env-based)
-    let secretRef: string | null = null;
+    let secretRef: string | null;
     try {
       const channelAccountRow = await this.database.getPool().query<{ secret_ref: string | null }>(
         `SELECT secret_ref FROM channel_accounts WHERE id = $1 AND workspace_id = $2 LIMIT 1`,
         [conversation.channel_account_id, this.workspaceId]
       );
       secretRef = channelAccountRow.rows[0]?.secret_ref ?? null;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = getErrorMessage(err);
       this.logger.error("Failed to load secret_ref for DM reply", { messageId, conversationId: conversation.id });
-      return { action: "nack_requeue", status: "db_error", error: err.message };
+      return { action: "nack_requeue", status: "db_error", error: errorMessage };
     }
 
     if (!secretRef) {
@@ -124,10 +134,11 @@ export class DirectMessageReplyWorker {
         idempotency_key: job.idempotency_key,
         secret_ref: secretRef
       });
-    } catch (mcpError: any) {
-      this.logger.error("MCP sendDirectMessage call failed", { messageId, error: mcpError.message });
+    } catch (mcpError: unknown) {
+      const mcpErrorMessage = getErrorMessage(mcpError);
+      this.logger.error("MCP sendDirectMessage call failed", { messageId, error: mcpErrorMessage });
       
-      const errorMsg = String(redact(mcpError.message));
+      const errorMsg = String(redact(mcpErrorMessage));
       const isTerminal = errorMsg.toLowerCase().includes("auth") ||
                          errorMsg.toLowerCase().includes("permission") ||
                          errorMsg.toLowerCase().includes("token") ||
@@ -143,7 +154,7 @@ export class DirectMessageReplyWorker {
     }
 
     if (!mcpResult.success) {
-      const errorMsg = String(redact(mcpResult.error || "Unknown MCP send error"));
+      const errorMsg = String(redact(mcpResult.error || UNKNOWN_MCP_SEND_ERROR));
       await this.markJobFailed(job.id, "MCP_ERROR", errorMsg, message.correlation_id, job.actor_id);
       await this.sendFailureSlackAlert(job.id, conversation.id, errorMsg, message.correlation_id);
       return { action: "ack", status: "mcp_failed", error: errorMsg };
@@ -198,9 +209,10 @@ export class DirectMessageReplyWorker {
           actorId: job.actor_id
         });
       });
-    } catch (err: any) {
-      this.logger.error("Failed to commit successful DM reply state to Ledger", { messageId, error: err.message });
-      return { action: "nack_requeue", status: "db_commit_error", error: err.message };
+    } catch (err: unknown) {
+      const errorMessage = getErrorMessage(err);
+      this.logger.error("Failed to commit successful DM reply state to Ledger", { messageId, error: errorMessage });
+      return { action: "nack_requeue", status: "db_commit_error", error: errorMessage };
     }
 
     return { action: "ack", status: "succeeded" };
@@ -219,8 +231,8 @@ export class DirectMessageReplyWorker {
           actorId
         });
       });
-    } catch (err: any) {
-      this.logger.error("Failed to mark DM reply job as failed in DB", { jobId, error: err.message });
+    } catch (err: unknown) {
+      this.logger.error("Failed to mark DM reply job as failed in DB", { jobId, error: getErrorMessage(err) });
     }
   }
 
@@ -243,6 +255,7 @@ export class DirectMessageReplyWorker {
           severity: "error",
           entity_type: "dm_reply_job",
           entity_id: jobId,
+          text,
           metadata: { jobId, conversationId, error: errorMsg },
           idempotency_key: `slack_alert:dm_fail:${jobId}`,
           correlation_id: correlationId
@@ -250,8 +263,8 @@ export class DirectMessageReplyWorker {
         `slack_alert_fail_${jobId}`,
         correlationId
       );
-    } catch (err: any) {
-      this.logger.warn("Failed to publish DM reply failure Slack alert", { jobId, error: err.message });
+    } catch (err: unknown) {
+      this.logger.warn("Failed to publish DM reply failure Slack alert", { jobId, error: getErrorMessage(err) });
     }
   }
 }

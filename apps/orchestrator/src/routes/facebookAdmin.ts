@@ -6,6 +6,7 @@ import { ChannelAccountAdminRepository, toTokenStatus } from "../ledger/channelA
 import { type FacebookMcpClient } from "../mcp/facebookMcpClient.js";
 import { type AirtableClient } from "../airtable/airtableClient.js";
 import { randomUUID } from "node:crypto";
+import { redact } from "../lib/redact.js";
 import {
   ConnectPageResultSchema,
   StrictExchangeCodeResultSchema,
@@ -21,6 +22,13 @@ type McpTextContent = {
   type: "text";
   text: string;
 };
+
+const OAUTH_STATE_TTL_MINUTES = 10;
+const OAUTH_SESSION_TTL_MINUTES = 15;
+const SECONDS_PER_MINUTE = 60;
+const MILLISECONDS_PER_SECOND = 1000;
+const OAUTH_STATE_TTL_MS = OAUTH_STATE_TTL_MINUTES * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND;
+const OAUTH_SESSION_TTL_MS = OAUTH_SESSION_TTL_MINUTES * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -40,8 +48,11 @@ function isTextContent(content: unknown): content is McpTextContent {
 function parseMcpJson(response: unknown): unknown {
   const toolResponse = response as McpToolResponse;
   const content = toolResponse.content?.find(isTextContent);
-  if (!content || toolResponse.isError) {
-    throw new Error("MCP error or invalid response");
+  if (toolResponse.isError) {
+    throw new Error(`MCP error: ${String(redact(content?.text ?? "Unknown MCP error"))}`);
+  }
+  if (!content) {
+    throw new Error("MCP response did not contain text content");
   }
   return JSON.parse(content.text) as unknown;
 }
@@ -49,8 +60,9 @@ function parseMcpJson(response: unknown): unknown {
 // MVP In-Memory Session Cache has been replaced by DB table
 // to allow multi-replica deployment and persistence across restarts.
 
-const OAuthCallbackBodySchema = z.object({
-  code: z.string().min(1)
+const OAuthCallbackQuerySchema = z.object({
+  code: z.string().min(1),
+  state: z.string().uuid()
 });
 
 const ConnectPageBodySchema = z.object({
@@ -70,9 +82,15 @@ export function createFacebookAdminRouter(
   const router = Router();
   const repo = new ChannelAccountAdminRepository();
 
-  // Guard all routes
+  // Meta redirects the browser to this route and cannot attach our admin
+  // header. The one-time OAuth state authenticates and attributes callback.
   router.use((req, res, next) => {
     void (async () => {
+    if (req.method === "GET" && req.path === "/auth/callback") {
+      next();
+      return;
+    }
+
     if (!isEnabled) {
       res.status(404).json({ error: "Facebook Page Config is disabled" });
       return;
@@ -119,8 +137,19 @@ export function createFacebookAdminRouter(
         return;
       }
 
+      const state = randomUUID();
+      const expiresAt = new Date(Date.now() + OAUTH_STATE_TTL_MS).toISOString();
+
+      await database.transaction(workspaceId, async (client) => {
+        await client.query(
+          `INSERT INTO facebook_oauth_states (state, workspace_id, actor_id, expires_at)
+           VALUES ($1, $2, $3, $4)`,
+          [state, workspaceId, res.locals.actorId, expiresAt]
+        );
+      });
+
       // Generate OAuth URL using MCP Client
-      const result = await mcpClient.callTool("generateOAuthUrl", { redirectUri });
+      const result = await mcpClient.callTool("generateOAuthUrl", { redirectUri, state });
       
       const data = parseMcpJson(result) as { url: string };
 
@@ -147,12 +176,12 @@ export function createFacebookAdminRouter(
     })();
   });
 
-  router.post("/auth/callback", (req, res) => {
+  router.get("/auth/callback", (req, res) => {
     void (async () => {
     try {
-      const body = OAuthCallbackBodySchema.safeParse(req.body);
-      if (!body.success) {
-        res.status(400).json({ error: "Missing OAuth code" });
+      const query = OAuthCallbackQuerySchema.safeParse(req.query);
+      if (!query.success) {
+        res.status(400).json({ error: "Missing or invalid OAuth code/state" });
         return;
       }
       if (!redirectUri) {
@@ -160,23 +189,43 @@ export function createFacebookAdminRouter(
         return;
       }
 
+      let actorId: string | undefined;
+      await database.transaction(workspaceId, async (client) => {
+        const stateResult = await client.query<{ actor_id: string }>(
+          `UPDATE facebook_oauth_states
+           SET consumed_at = NOW()
+           WHERE state = $1
+             AND workspace_id = $2
+             AND consumed_at IS NULL
+             AND expires_at > NOW()
+           RETURNING actor_id`,
+          [query.data.state, workspaceId]
+        );
+        actorId = stateResult.rows[0]?.actor_id;
+      });
+
+      if (!actorId) {
+        res.status(400).json({ error: "OAUTH_STATE_INVALID_OR_EXPIRED" });
+        return;
+      }
+
       const result = await mcpClient.callTool("exchangeCodeAndListPages", {
         workspaceId,
-        authCode: body.data.code,
+        authCode: query.data.code,
         redirectUri
       });
 
       const data = StrictExchangeCodeResultSchema.parse(parseMcpJson(result));
       
       const connectionSessionId = randomUUID();
-      const ttlMs = 15 * 60 * 1000; // 15 minutes
+      const ttlMs = OAUTH_SESSION_TTL_MS;
       const expiresAt = new Date(Date.now() + ttlMs).toISOString();
 
       await database.transaction(workspaceId, async (client) => {
         await client.query(
           `INSERT INTO facebook_oauth_sessions (id, workspace_id, actor_id, user_token_ref, expires_at)
            VALUES ($1, $2, $3, $4, $5)`,
-          [connectionSessionId, workspaceId, res.locals.actorId, data.userTokenRef, expiresAt]
+          [connectionSessionId, workspaceId, actorId, data.userTokenRef, expiresAt]
         );
       });
 

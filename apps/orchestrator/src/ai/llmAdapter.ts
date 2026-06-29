@@ -38,6 +38,11 @@ export interface LlmGenerateOptions {
   mockScenario?: "happy" | "drift" | "malformed" | "injection" | "timeout" | "rate_limit" | "empty_hashtags";
 }
 
+const DEFAULT_LLM_TIMEOUT_MS = 30_000;
+const HTTP_BAD_GATEWAY = 502;
+const HTTP_SERVICE_UNAVAILABLE = 503;
+const HTTP_GATEWAY_TIMEOUT = 504;
+
 export interface LlmAdapter {
   generateContent(
     systemPrompt: string,
@@ -81,7 +86,7 @@ export class GeminiLlmAdapter implements LlmAdapter {
     }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
-    const timeoutMs = options?.timeoutMs ?? 30_000;
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
     const maxRetries = options?.maxRetries ?? 3;
 
     let attempt = 0;
@@ -150,7 +155,11 @@ export class GeminiLlmAdapter implements LlmAdapter {
       throw new LlmRateLimitError("Gemini API rate limit hit (HTTP 429)");
     }
 
-    if (response.status === 502 || response.status === 503 || response.status === 504) {
+    if (
+      response.status === HTTP_BAD_GATEWAY ||
+      response.status === HTTP_SERVICE_UNAVAILABLE ||
+      response.status === HTTP_GATEWAY_TIMEOUT
+    ) {
       throw new LlmServiceError(`Gemini service unavailable (HTTP ${response.status})`);
     }
 

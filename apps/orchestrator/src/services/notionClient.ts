@@ -1,6 +1,22 @@
 import dns from "node:dns/promises";
 import { URL } from "node:url";
 
+const LOCALHOST_IPV4_FIRST_OCTET = 127;
+const PRIVATE_172_FIRST_OCTET = 172;
+const PRIVATE_172_SECOND_OCTET_MIN = 16;
+const PRIVATE_172_SECOND_OCTET_MAX = 31;
+const PRIVATE_192_FIRST_OCTET = 192;
+const PRIVATE_192_SECOND_OCTET = 168;
+const LINK_LOCAL_FIRST_OCTET = 169;
+const LINK_LOCAL_SECOND_OCTET = 254;
+const MOCK_NOTION_BRIEF = {
+  briefSummary: "Mock campaign brief for testing Facebook Composer.",
+  brandVoice: "Professional, engaging, modern",
+  doTerms: ["innovation", "easy", "secure"],
+  avoidTerms: ["cheap", "guaranteed", "hack"],
+  legalNotes: "Include standard terms and conditions."
+};
+
 export class NotionSsrfError extends Error {
   readonly retryable = false;
   constructor(message: string) {
@@ -27,15 +43,15 @@ export function isPrivateOrLocalIp(ip: string): boolean {
     const o2 = parseInt(ipv4Match[2], 10);
 
     // 127.0.0.0/8
-    if (o1 === 127) return true;
+    if (o1 === LOCALHOST_IPV4_FIRST_OCTET) return true;
     // 10.0.0.0/8
     if (o1 === 10) return true;
     // 172.16.0.0/12
-    if (o1 === 172 && o2 >= 16 && o2 <= 31) return true;
+    if (o1 === PRIVATE_172_FIRST_OCTET && o2 >= PRIVATE_172_SECOND_OCTET_MIN && o2 <= PRIVATE_172_SECOND_OCTET_MAX) return true;
     // 192.168.0.0/16
-    if (o1 === 192 && o2 === 168) return true;
+    if (o1 === PRIVATE_192_FIRST_OCTET && o2 === PRIVATE_192_SECOND_OCTET) return true;
     // 169.254.0.0/16
-    if (o1 === 169 && o2 === 254) return true;
+    if (o1 === LINK_LOCAL_FIRST_OCTET && o2 === LINK_LOCAL_SECOND_OCTET) return true;
     // 0.0.0.0
     if (o1 === 0) return true;
   }
@@ -122,11 +138,11 @@ export class NotionClient {
     // In mock or test mode, if there is no token or if it's a test domain, return mock/stub content
     if (!notionToken || urlStr.includes("test-brief")) {
       return {
-        brief_summary: "Mock campaign brief for testing Facebook Composer.",
-        brand_voice: "Professional, engaging, modern",
-        do_terms: ["innovation", "easy", "secure"],
-        avoid_terms: ["cheap", "guaranteed", "hack"],
-        legal_notes: "Include standard terms and conditions."
+        brief_summary: MOCK_NOTION_BRIEF.briefSummary,
+        brand_voice: MOCK_NOTION_BRIEF.brandVoice,
+        do_terms: MOCK_NOTION_BRIEF.doTerms,
+        avoid_terms: MOCK_NOTION_BRIEF.avoidTerms,
+        legal_notes: MOCK_NOTION_BRIEF.legalNotes
       };
     }
 

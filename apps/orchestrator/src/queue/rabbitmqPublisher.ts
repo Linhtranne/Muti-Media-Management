@@ -19,6 +19,26 @@ import type { Database } from "../ledger/postgres.js";
 import type { Logger } from "../lib/logger.js";
 import { auditQueuePublished } from "./queueAuditHelper.js";
 
+const SYSTEM_WORKSPACE_ID = "system";
+const UNKNOWN_EVENT_TYPE = "unknown";
+const JSON_CONTENT_TYPE = "application/json";
+const PERSISTENT_DELIVERY_MODE = 2;
+const UNIX_MS_PER_SECOND = 1000;
+
+function getStringField(record: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function currentUnixTimestampSeconds(): number {
+  return Math.floor(Date.now() / UNIX_MS_PER_SECOND);
+}
+
 export interface QueuePublisher {
   publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void>;
   publishAiComposerRequest(message: AiComposerQueueMessage, messageId: string): Promise<void>;
@@ -57,6 +77,7 @@ export async function createRabbitMqPublisher(
   const slackAlertQueue = "alerts.slack.send";
   const slackAlertRoutingKey = "alerts.slack.send";
   const slackExchange = "slack.workflows";
+  const slackDlxExchange = "dlx";
   const slackCommandQueue = "slack.post_approval.requested";
   const slackCommandRoutingKey = "slack.post_approval.requested";
 
@@ -73,12 +94,25 @@ export async function createRabbitMqPublisher(
   await channel.assertQueue(slackAlertQueue, { durable: true });
   await channel.bindQueue(slackAlertQueue, alertsExchange, slackAlertRoutingKey);
   await channel.assertExchange(slackExchange, "topic", { durable: true });
-  await channel.assertQueue(slackCommandQueue, { durable: true });
+  await channel.assertExchange(slackDlxExchange, "topic", { durable: true });
+  await channel.assertQueue("slack.post_approval.requested.dlq", { durable: true });
+  await channel.bindQueue("slack.post_approval.requested.dlq", slackDlxExchange, slackCommandQueue);
+  await channel.assertQueue(slackCommandQueue, {
+    durable: true,
+    deadLetterExchange: slackDlxExchange,
+    deadLetterRoutingKey: slackCommandQueue
+  });
   await channel.bindQueue(slackCommandQueue, slackExchange, slackCommandRoutingKey);
 
   const slackCommentActionQueue = "slack.comment_action.requested";
   const slackCommentActionRoutingKey = "slack.comment_action.requested";
-  await channel.assertQueue(slackCommentActionQueue, { durable: true });
+  await channel.assertQueue("slack.comment_action.requested.dlq", { durable: true });
+  await channel.bindQueue("slack.comment_action.requested.dlq", slackDlxExchange, slackCommentActionQueue);
+  await channel.assertQueue(slackCommentActionQueue, {
+    durable: true,
+    deadLetterExchange: slackDlxExchange,
+    deadLetterRoutingKey: slackCommentActionQueue
+  });
   await channel.bindQueue(slackCommentActionQueue, slackExchange, slackCommentActionRoutingKey);
 
   await channel.assertExchange("comments.workflows", "topic", { durable: true });
@@ -93,10 +127,13 @@ export async function createRabbitMqPublisher(
     fallbackCorrelationId?: string
   ): Promise<void> {
     if (database && logger) {
-      const workspaceId = (message as any).workspace_id || (message as any).workspaceId || "system";
-      const eventId = (message as any).event_id || (message as any).eventId || messageId;
-      const eventType = (message as any).event_type || (message as any).eventType || "unknown";
-      const correlationId = (message as any).correlation_id || (message as any).correlationId || fallbackCorrelationId || messageId;
+      const messageRecord = typeof message === "object" && message !== null
+        ? message as Record<string, unknown>
+        : {};
+      const workspaceId = getStringField(messageRecord, "workspace_id", "workspaceId") ?? SYSTEM_WORKSPACE_ID;
+      const eventId = getStringField(messageRecord, "event_id", "eventId") ?? messageId;
+      const eventType = getStringField(messageRecord, "event_type", "eventType") ?? UNKNOWN_EVENT_TYPE;
+      const correlationId = getStringField(messageRecord, "correlation_id", "correlationId") ?? fallbackCorrelationId ?? messageId;
 
       await auditQueuePublished(
         database.getPool(),
@@ -120,12 +157,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishApprovedPost");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(exchange, routingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -140,12 +177,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishAiComposerRequest");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(aiExchange, aiRoutingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -160,12 +197,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishFacebookRequest");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, publishRoutingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -180,12 +217,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishSlackAlert");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(alertsExchange, slackAlertRoutingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId,
         type: "alerts.slack.send",
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -200,12 +237,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishFacebookValidated");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, "publish.facebook.validated", body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -220,12 +257,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishFacebookExecute");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(publishExchange, "publish.facebook.execute", body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlationId,
         type: message.eventType,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -240,12 +277,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishSlackCommandAction");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(slackExchange, slackCommandRoutingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -260,12 +297,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message, "publishSlackCommentAction");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(slackExchange, slackCommentActionRoutingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -284,12 +321,12 @@ export async function createRabbitMqPublisher(
       const commentsRoutingKey = "comments.facebook.sync.requested";
       
       const ok = channel.publish(commentsExchange, commentsRoutingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -307,12 +344,12 @@ export async function createRabbitMqPublisher(
       const commentsRoutingKey = "comments.facebook.ingest";
       
       const ok = channel.publish(commentsExchange, commentsRoutingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -331,12 +368,12 @@ export async function createRabbitMqPublisher(
 
       const body = Buffer.from(JSON.stringify(envelope));
       const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, routingKey, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId: envelope.event_id,
         correlationId: envelope.correlation_id,
         type: envelope.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -352,12 +389,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message.payload, "publishDirectMessageIngest.payload");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, message.event_type, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {
@@ -373,12 +410,12 @@ export async function createRabbitMqPublisher(
       assertNoForbiddenFields(message.payload, "publishDirectMessageReplyRequested.payload");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, message.event_type, body, {
-        contentType: "application/json",
-        deliveryMode: 2,
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
         messageId,
         correlationId: message.correlation_id,
         type: message.event_type,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: currentUnixTimestampSeconds()
       });
 
       if (!ok) {

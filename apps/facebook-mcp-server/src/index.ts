@@ -1,4 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { z } from "zod";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
@@ -31,6 +32,10 @@ import { sendDirectMessageHandler } from "./tools/sendDirectMessage.js";
 // Ensure environment variables are loaded if not run via a wrapper
 import * as dotenv from "dotenv";
 dotenv.config();
+
+if (process.env.NODE_ENV === "production" && process.env.FACEBOOK_MOCK_MODE === "true") {
+  throw new Error("FACEBOOK_MOCK_MODE=true is not allowed in production");
+}
 
 const server = new Server(
   {
@@ -161,9 +166,10 @@ const GENERATE_OAUTH_URL_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      redirectUri: { type: "string" }
+      redirectUri: { type: "string" },
+      state: { type: "string" }
     },
-    required: ["redirectUri"]
+    required: ["redirectUri", "state"]
   }
 };
 
@@ -344,16 +350,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (request.params.name === "generateOAuthUrl") {
+      const input = z.object({
+        redirectUri: z.string().url(),
+        state: z.string().min(1)
+      }).strict().parse(request.params.arguments);
+
+      if (process.env.FACEBOOK_MOCK_MODE === "true") {
+        const callbackUrl = new URL(input.redirectUri);
+        callbackUrl.searchParams.set("code", "mock-authorization-code");
+        callbackUrl.searchParams.set("state", input.state);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ url: callbackUrl.toString() }, null, 2) }]
+        };
+      }
+
       const appId = process.env.FACEBOOK_APP_ID;
       if (!appId) throw new Error("Missing FACEBOOK_APP_ID");
-      
-      const scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_manage_engagement"];
-      const redirectUri = ExchangeCodePayloadSchema.pick({ redirectUri: true })
-        .parse(request.params.arguments).redirectUri;
-      const url = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes.join(",")}`;
+
+      const scopes = (process.env.FACEBOOK_REQUIRED_SCOPES ??
+        "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement")
+        .split(",")
+        .map((scope) => scope.trim())
+        .filter(Boolean);
+      const url = new URL("https://www.facebook.com/v22.0/dialog/oauth");
+      url.searchParams.set("client_id", appId);
+      url.searchParams.set("redirect_uri", input.redirectUri);
+      url.searchParams.set("scope", scopes.join(","));
+      url.searchParams.set("state", input.state);
       
       return {
-        content: [{ type: "text", text: JSON.stringify({ url }, null, 2) }]
+        content: [{ type: "text", text: JSON.stringify({ url: url.toString() }, null, 2) }]
       };
     }
 

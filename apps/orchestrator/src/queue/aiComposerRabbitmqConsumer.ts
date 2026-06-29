@@ -1,7 +1,7 @@
 import amqp from "amqplib";
 import { AiComposerQueueMessageSchema } from "@mediaops/shared-contracts";
 import type { Logger } from "../lib/logger.js";
-import type { AiComposerWorker } from "../workers/aiComposerWorker.js";
+import type { AiComposerWorker } from "../workers/ai-composer-worker.js";
 
 export interface AiQueueConsumerChannel {
   assertExchange(exchange: string, type: string, options: { durable: boolean }): Promise<unknown>;

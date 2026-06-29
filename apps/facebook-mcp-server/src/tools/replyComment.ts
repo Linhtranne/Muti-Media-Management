@@ -71,6 +71,13 @@ export async function replyCommentHandler(
     return { success: false, error: `Failed to resolve credentials.` };
   }
 
+  if (process.env.FACEBOOK_MOCK_MODE === "true") {
+    return {
+      success: true,
+      external_reply_id: `mock-comment-reply-${input.external_comment_id}`
+    };
+  }
+
   try {
     const data = await graphClient.postComment(
       input.external_comment_id,

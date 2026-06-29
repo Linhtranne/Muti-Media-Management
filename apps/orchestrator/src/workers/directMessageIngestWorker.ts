@@ -6,6 +6,14 @@ import { type Database } from "../ledger/postgres.js";
 import { checkIdempotency, markIdempotencySucceeded } from "../queue/idempotencyGuard.js";
 import { type Logger } from "../lib/logger.js";
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+const MINUTES_PER_HOUR = 60;
+const SECONDS_PER_MINUTE = 60;
+const MILLISECONDS_PER_SECOND = 1000;
+
 export interface IngestWorkerResult {
   action: "ack" | "nack_requeue" | "nack_dlq";
   status: string;
@@ -82,10 +90,11 @@ export class DirectMessageIngestWorker {
         external_message_id: event.payload.external_message_id,
         secret_ref: secretRef
       });
-    } catch (mcpError: any) {
+    } catch (mcpError: unknown) {
+      const errorMessage = getErrorMessage(mcpError);
       this.logger.error("MCP get_direct_message call failed in DM Ingest worker", {
         messageId,
-        error: mcpError.message
+        error: errorMessage
       });
 
       // Audit DM_INGEST_FAILED
@@ -93,15 +102,15 @@ export class DirectMessageIngestWorker {
         workspaceId: event.workspace_id,
         eventType: "DM_INGEST_FAILED",
         entityId: event.payload.external_message_id,
-        metadata: { reason: "MCP get_direct_message call failed", error: mcpError.message },
+        metadata: { reason: "MCP get_direct_message call failed", error: errorMessage },
         correlationId: event.correlation_id
       });
 
-      const isTerminal = mcpError.message.includes("not found") || mcpError.message.includes("validation");
+      const isTerminal = errorMessage.includes("not found") || errorMessage.includes("validation");
       return {
         action: isTerminal ? "nack_dlq" : "nack_requeue",
         status: "mcp_failed",
-        error: mcpError.message
+        error: errorMessage
       };
     }
 
@@ -111,7 +120,7 @@ export class DirectMessageIngestWorker {
       await this.database.transaction(event.workspace_id, async (client) => {
         // Compute sla_due_at (fallback 2 hours)
         const slaHours = this.config.dmSlaHours ?? 2;
-        const slaDueAt = new Date(Date.now() + slaHours * 60 * 60 * 1000);
+        const slaDueAt = new Date(Date.now() + slaHours * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND);
 
         // Upsert conversation
         const conversation = await this.dmRepo.upsertConversation(client, event.workspace_id, {
@@ -156,15 +165,16 @@ export class DirectMessageIngestWorker {
           });
         }
       });
-    } catch (dbError: any) {
+    } catch (dbError: unknown) {
+      const errorMessage = getErrorMessage(dbError);
       this.logger.error("Database transaction failed in DM Ingest worker", {
         messageId,
-        error: dbError.message
+        error: errorMessage
       });
       return {
         action: "nack_requeue",
         status: "db_transaction_failed",
-        error: dbError.message
+        error: errorMessage
       };
     }
 
@@ -197,10 +207,10 @@ export class DirectMessageIngestWorker {
           `slack_alert_${event.event_id}`,
           event.correlation_id
         );
-      } catch (slackError: any) {
+      } catch (slackError: unknown) {
         this.logger.warn("Failed to publish Slack inbox alert in DM Ingest worker", {
           messageId,
-          error: slackError.message
+          error: getErrorMessage(slackError)
         });
       }
     }

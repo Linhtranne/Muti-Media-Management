@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const NOTION_CONTEXT_ERROR_MESSAGE_MAX_LENGTH = 255;
+
 export const AiGenerationStatusSchema = z.enum([
   "queued",
   "processing",
@@ -37,7 +39,7 @@ export const NotionContextRefSchema = z.object({
   load_status: z.enum(["success", "failed", "fallback"]),
   ai_ready: z.boolean(),
   error_code: AiErrorCodeSchema.optional(),
-  error_message: z.string().max(255).optional(),
+  error_message: z.string().max(NOTION_CONTEXT_ERROR_MESSAGE_MAX_LENGTH).optional(),
   fallback_source: z.string().optional()
 }).strict();
 
