@@ -136,6 +136,8 @@ Agent must preserve these boundaries:
 | US-013 | Notion context | `services/notionClient.ts`, `workers/aiComposerWorker.ts`, shared AI contracts |
 | US-014 | RabbitMQ hardening | `queue/topologyConfig.ts`, `queue/rabbitmqPublisher.ts`, `queue/idempotencyGuard.ts`, migration `0014` |
 | US-015 | Unified DM inbox | `workers/directMessage*`, `queue/directMessage*`, `ledger/directMessageRepository.ts`, shared DM contracts |
+| AI-SDLC-001 | Completion Gate Checker | `scripts/ai-sdlc-check.mjs`, `scripts/ai-sdlc-validate.mjs` |
+| AI-SDLC-002 | Native Completion Gate Checker | `scripts/pre-commit-gate.mjs`, `scripts/install-hooks.mjs`, `scripts/runtime-smoke.mjs` |
 
 ## 7. Current implementation caveats
 

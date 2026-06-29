@@ -21,7 +21,10 @@
     "rabbitmq:reset-slack": "node delete-rabbit-queues.cjs",
     "db:apply": "node apply-migration.cjs",
     "verify:db": "npx @insforge/cli db query \"SELECT 1 AS ok\"",
-    "ai-sdlc:check": "node scripts/ai-sdlc-check.mjs"
+    "ai-sdlc:check": "node scripts/ai-sdlc-check.mjs",
+    "ai-sdlc:validate": "node scripts/ai-sdlc-validate.mjs",
+    "ai-sdlc:smoke": "node scripts/runtime-smoke.mjs",
+    "prepare": "node scripts/install-hooks.mjs"
   },
   "dependencies": {
     "amqplib": "^0.10.4",

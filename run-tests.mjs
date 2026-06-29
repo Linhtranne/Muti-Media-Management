@@ -73,7 +73,12 @@ const testFiles = [
   "apps/orchestrator/dist/queue/__tests__/rabbitmqConsumer.test.js",
 
   // AI-SDLC automation pilot
-  "scripts/__tests__/ai-sdlc-check.test.mjs"
+  "scripts/__tests__/ai-sdlc-check.test.mjs",
+  "scripts/__tests__/ai-sdlc-validate.test.mjs",
+  "scripts/__tests__/ai-sdlc-quality.test.mjs",
+  "scripts/__tests__/ai-sdlc-trace.test.mjs",
+  "scripts/__tests__/pre-commit-gate.test.mjs",
+  "scripts/__tests__/runtime-smoke.test.mjs"
 ];
 
 const absoluteFiles = testFiles.map((f) => path.resolve(__dirname, f));

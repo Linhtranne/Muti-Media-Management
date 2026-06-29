@@ -23,7 +23,18 @@ Root commands:
 npm run build
 npm run lint
 npm test
+npm run ai-sdlc:validate -- <STORY-ID>
 npm run verify:db
+```
+
+`npm run ai-sdlc:validate -- <STORY-ID>` is the official Automated L2 local quality gate for story completion claims. It runs build, lint, full tests, and the AI-SDLC artifact checker for the provided story id.
+
+Do not wire the story-aware gate directly into `npm run lint`. Keeping `lint` story-agnostic preserves normal development flow while still allowing reviewers and agents to run the full story gate before reporting completion.
+
+If the story id is missing, the command must fail with:
+
+```text
+Usage: npm run ai-sdlc:validate -- <STORY-ID>
 ```
 
 Helpful operational commands:
@@ -256,6 +267,14 @@ Before using `Verified`, `done`, or `production-ready`, also apply:
 ```text
 docs/ai-sdlc/04_COMPLETION_GATE.md
 ```
+
+For implementation or behavior work with a story id, prefer the combined command:
+
+```powershell
+npm run ai-sdlc:validate -- <STORY-ID>
+```
+
+This command is additive. It does not replace targeted tests, runtime smoke tests, or external integration checks when those are required by risk level.
 
 That file is the fail-closed completion checklist for spec approval, plan approval, baseline, red test evidence, build/lint/test evidence, report evidence, open items, and runtime smoke.
 
