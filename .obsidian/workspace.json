@@ -11,14 +11,17 @@
             "id": "62312619c339da9a",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "canvas",
               "state": {
-                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
-                "mode": "source",
-                "source": false
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
+                "viewState": {
+                  "x": 150,
+                  "y": 1489.1725932350391,
+                  "zoom": -0.536182334429111
+                }
               },
-              "icon": "lucide-file",
-              "title": "03_SRS_MediaOps_Composability"
+              "icon": "lucide-layout-dashboard",
+              "title": "AI-SDLC-Entity-Map"
             }
           }
         ]
@@ -94,7 +97,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +107,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for 03_SRS_MediaOps_Composability"
+              "title": "Backlinks for AI-SDLC-Entity-Map"
             }
           },
           {
@@ -113,12 +116,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from 03_SRS_MediaOps_Composability"
+              "title": "Outgoing links from AI-SDLC-Entity-Map"
             }
           },
           {
@@ -156,13 +159,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of 03_SRS_MediaOps_Composability"
+              "title": "Outline of AI-SDLC-Entity-Map"
             }
           }
         ]
@@ -185,6 +188,15 @@
   },
   "active": "62312619c339da9a",
   "lastOpenFiles": [
+    "node_modules/flatted/golang/README.md",
+    "node_modules/superagent/node_modules/debug/README.md",
+    "node_modules/@modelcontextprotocol/sdk/node_modules/raw-body/README.md",
+    "node_modules/@typescript-eslint/parser/node_modules/ms/readme.md",
+    "docs/plans/US-001/US-001-field-types-and-constraints.md",
+    "node_modules/vary/HISTORY.md",
+    "node_modules/jose/README.md",
+    "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
+    "docs/requirements/03_SRS_MediaOps_Composability.md",
     "docs/requirements/04_Product_Backlog.md",
     "docs/requirements/05_Function_Flow_Logic_Register.md",
     "docs/requirements/13_Sprint_1_Backlog.md",
@@ -212,14 +224,6 @@
     "AGENTS.md",
     "docs/specs/SPEC-US-013-Notion-Context-Loader.md",
     "docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Validate-Gate-Integration.md",
-    "docs/reports/AI-SDLC-002",
-    "docs/specs/SPEC-PROJECT-MediaOps-Composability.md",
-    "docs/specs/SPEC-AI-SDLC-001-Completion-Gate-Checker.md",
-    "docs/testing/AI-SDLC-001/RED-AI-SDLC-001-Completion-Gate-Checker.md",
-    "docs/testing/AI-SDLC-001/GREEN-AI-SDLC-001-Completion-Gate-Checker.md",
-    "docs/testing/AI-SDLC-001/BRAINSTORM-AI-SDLC-001-Completion-Gate-Checker.md",
-    "docs/testing/AI-SDLC-001/BASELINE-AI-SDLC-001-Completion-Gate-Checker.md",
-    "docs/testing/AI-SDLC-001/APPROVAL-AI-SDLC-001-Completion-Gate-Checker.md",
-    "docs/Phân tích Dự án Quản lý Truyền thông Đa kênh.md"
+    "docs/reports/AI-SDLC-002"
   ]
 }

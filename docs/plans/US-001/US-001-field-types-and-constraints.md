@@ -70,21 +70,21 @@ Bảng `Campaigns` quản lý thông tin chiến dịch marketing cấp cao.
 
 Bảng `Posts` quản lý nội dung chi tiết, lịch đăng và trạng thái phê duyệt của từng bài đăng.
 
-| Trường (Field) | Kiểu dữ liệu Airtable (Physical Type) | Bắt buộc (Required) | Giá trị mặc định (Default) | Cấu hình / Công thức (Options / Formula) | Ghi chú kỹ thuật (Technical Notes) |
-|:---|:---|:---|:---|:---|:---|
-| `Autonumber` | Autonumber | Yes | Auto-increment | - | Trường ẩn, dùng làm helper để tạo ID duy nhất. |
-| `post_id` | Formula | Yes | - | `"PST-" & {Autonumber}` | **Primary Field** (Trường hiển thị chính, cột đầu tiên). Định danh bài đăng duy nhất. |
-| `campaign_id` | Link to Campaigns | Yes | - | Single record selection | Mối quan hệ nhiều-một (Many-to-1) trỏ sang bảng `Campaigns`. |
-| `title` | Single line text | Yes | - | - | Tiêu đề bài đăng phục vụ quản lý nội bộ. |
-| `master_copy` | Long text | Cond. | - | Plain text (Rich text disabled) | Nội dung cốt lõi của bài viết. Bắt buộc có dữ liệu khi status khác `Draft` (BR1). |
-| `cta_url` | URL | No | - | - | Link hành động đính kèm bài viết (chứa UTM). |
-| `asset_links` | Long text | No | - | Plain text | Danh sách link media, mỗi dòng chứa một URL. |
-| `target_channels` | Multiple select | Yes | `"Facebook"` | `Facebook`, `LinkedIn`\*, `Twitter/X`\*, `YouTube`\*, `Zalo`\* | Kênh đăng bài. Những kênh đánh dấu (\*) là proposed cho tương lai. |
-| `connected_channel_accounts` | Link to Channel Accounts | Cond. | - | Allow linking to multiple records | Liên kết tài khoản stub mạng xã hội cụ thể. Bắt buộc khi chuyển trạng thái duyệt. |
-| `scheduled_at` | Date-Time | Cond. | - | GMT/UTC, format 24h | Lịch phát sóng. Bắt buộc ở tương lai khi chuyển trạng thái duyệt (BR3). |
-| `status` | Single select | Yes | `"Draft"` | `Draft`, `Review`, `Approved`, `Scheduled`, `Published`, `Failed` | Đúng 6 trạng thái bắt buộc theo AC2. |
-| `reviewer` | User (Collaborator) | No | - | - | Người chịu trách nhiệm kiểm duyệt/phê duyệt. |
-| `approved_at` | Date-Time | No | - | GMT/UTC, format 24h | Thời điểm duyệt thực tế. Cập nhật qua Automation (T-005) hoặc API. |
+| Trường (Field)               | Kiểu dữ liệu Airtable (Physical Type) | Bắt buộc (Required) | Giá trị mặc định (Default) | Cấu hình / Công thức (Options / Formula)                          | Ghi chú kỹ thuật (Technical Notes)                                                    |
+| :--------------------------- | :------------------------------------ | :------------------ | :------------------------- | :---------------------------------------------------------------- | :------------------------------------------------------------------------------------ |
+| `Autonumber`                 | Autonumber                            | Yes                 | Auto-increment             | -                                                                 | Trường ẩn, dùng làm helper để tạo ID duy nhất.                                        |
+| `post_id`                    | Formula                               | Yes                 | -                          | `"PST-" & {Autonumber}`                                           | **Primary Field** (Trường hiển thị chính, cột đầu tiên). Định danh bài đăng duy nhất. |
+| `campaign_id`                | Link to Campaigns                     | Yes                 | -                          | Single record selection                                           | Mối quan hệ nhiều-một (Many-to-1) trỏ sang bảng `Campaigns`.                          |
+| `title`                      | Single line text                      | Yes                 | -                          | -                                                                 | Tiêu đề bài đăng phục vụ quản lý nội bộ.                                              |
+| `master_copy`                | Long text                             | Cond.               | -                          | Plain text (Rich text disabled)                                   | Nội dung cốt lõi của bài viết. Bắt buộc có dữ liệu khi status khác `Draft` (BR1).     |
+| `cta_url`                    | URL                                   | No                  | -                          | -                                                                 | Link hành động đính kèm bài viết (chứa UTM).                                          |
+| `asset_links`                | Long text                             | No                  | -                          | Plain text                                                        | Danh sách link media, mỗi dòng chứa một URL.                                          |
+| `target_channels`            | Multiple select                       | Yes                 | `"Facebook"`               | `Facebook`, `LinkedIn`\*, `Twitter/X`\*, `YouTube`\*, `Zalo`\*    | Kênh đăng bài. Những kênh đánh dấu (\*) là proposed cho tương lai.                    |
+| `connected_channel_accounts` | Link to Channel Accounts              | Cond.               | -                          | Allow linking to multiple records                                 | Liên kết tài khoản stub mạng xã hội cụ thể. Bắt buộc khi chuyển trạng thái duyệt.     |
+| `scheduled_at`               | Date-Time                             | Cond.               | -                          | GMT/UTC, format 24h                                               | Lịch phát sóng. Bắt buộc ở tương lai khi chuyển trạng thái duyệt (BR3).               |
+| `status`                     | Single select                         | Yes                 | `"Draft"`                  | `Draft`, `Review`, `Approved`, `Scheduled`, `Published`, `Failed` | Đúng 6 trạng thái bắt buộc theo AC2.                                                  |
+| `reviewer`                   | User (Collaborator)                   | No                  | -                          | -                                                                 | Người chịu trách nhiệm kiểm duyệt/phê duyệt.                                          |
+| `approved_at`                | Date-Time                             | No                  | -                          | GMT/UTC, format 24h                                               | Thời điểm duyệt thực tế. Cập nhật qua Automation (T-005) hoặc API.                    |
 
 ---
 
@@ -92,13 +92,13 @@ Bảng `Posts` quản lý nội dung chi tiết, lịch đăng và trạng thái
 
 Bảng stub tham chiếu danh sách các tài khoản hoặc trang mạng xã hội đã liên kết.
 
-| Trường (Field) | Kiểu dữ liệu Airtable (Physical Type) | Bắt buộc (Required) | Giá trị mặc định (Default) | Cấu hình / Công thức (Options / Formula) | Ghi chú kỹ thuật (Technical Notes) |
-|:---|:---|:---|:---|:---|:---|
-| `platform` | Single select | Yes | `"Facebook"` | `Facebook`, `LinkedIn`\*, `Twitter/X`\*, `YouTube`\*, `Zalo`\* | Hệ điều hành nền tảng mạng xã hội. Kênh (\*) là proposed cho tương lai. |
-| `display_name` | Single line text | Yes | - | - | Tên hiển thị công khai (ví dụ tên Page). |
-| `channel_account_id` | Formula | Yes | - | `{platform} & ": " & {display_name}` | **Primary Field** (Trường hiển thị chính, cột đầu tiên). Định danh duy nhất thân thiện. |
-| `status` | Single select | Yes | `"Connected"` | `Connected`, `Disconnected`, `Expired` | Trạng thái kết nối của tài khoản. |
-| `posts` | Link to Posts | No | - | Allow linking to multiple records | Mối quan hệ Nhiều-Nhiều (Many-to-Many) đảo ngược tới bảng `Posts`. |
+| Trường (Field)       | Kiểu dữ liệu Airtable (Physical Type) | Bắt buộc (Required) | Giá trị mặc định (Default) | Cấu hình / Công thức (Options / Formula)                       | Ghi chú kỹ thuật (Technical Notes)                                                      |
+| :------------------- | :------------------------------------ | :------------------ | :------------------------- | :------------------------------------------------------------- | :-------------------------------------------------------------------------------------- |
+| `platform`           | Single select                         | Yes                 | `"Facebook"`               | `Facebook`, `LinkedIn`\*, `Twitter/X`\*, `YouTube`\*, `Zalo`\* | Hệ điều hành nền tảng mạng xã hội. Kênh (\*) là proposed cho tương lai.                 |
+| `display_name`       | Single line text                      | Yes                 | -                          | -                                                              | Tên hiển thị công khai (ví dụ tên Page).                                                |
+| `channel_account_id` | Formula                               | Yes                 | -                          | `{platform} & ": " & {display_name}`                           | **Primary Field** (Trường hiển thị chính, cột đầu tiên). Định danh duy nhất thân thiện. |
+| `status`             | Single select                         | Yes                 | `"Connected"`              | `Connected`, `Disconnected`, `Expired`                         | Trạng thái kết nối của tài khoản.                                                       |
+| `posts`              | Link to Posts                         | No                  | -                          | Allow linking to multiple records                              | Mối quan hệ Nhiều-Nhiều (Many-to-Many) đảo ngược tới bảng `Posts`.                      |
 
 > [!WARNING]
 > **Ràng buộc an toàn tuyệt đối**: Bảng `Channel Accounts` chỉ là Stub tham chiếu hiển thị. Nghiêm cấm tạo bất kỳ trường nào chứa mã truy cập bí mật như `access_token`, `refresh_token`, `secret`, `secret_ref` hay `oauth_credential` tại đây. Toàn bộ thông tin bảo mật thực tế phải được lưu trữ server-side tại Secret Storage của server tích hợp (Coding Convention §5).
