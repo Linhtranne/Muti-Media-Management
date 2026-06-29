@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "README.md",
+                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "README"
+              "title": "03_SRS_MediaOps_Composability"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "README.md",
+                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for README"
+              "title": "Backlinks for 03_SRS_MediaOps_Composability"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "README.md",
+                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from README"
+              "title": "Outgoing links from 03_SRS_MediaOps_Composability"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "README.md",
+                "file": "docs/requirements/03_SRS_MediaOps_Composability.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of README"
+              "title": "Outline of 03_SRS_MediaOps_Composability"
             }
           }
         ]
@@ -183,11 +183,15 @@
       "bases:Create new base": false
     }
   },
-  "active": "c0fa1d341afccb43",
+  "active": "62312619c339da9a",
   "lastOpenFiles": [
-    "docs/testing/AI-SDLC-002/GREEN-AI-SDLC-002-Native-Gate-Checker.md",
-    "docs/requirements/US-AI-SDLC-001-Completion-Gate-Checker.md",
+    "docs/requirements/04_Product_Backlog.md",
+    "docs/requirements/05_Function_Flow_Logic_Register.md",
+    "docs/requirements/13_Sprint_1_Backlog.md",
     "docs/requirements/US-AI-SDLC-002-Native-Gate-Checker.md",
+    "docs/requirements/US-AI-SDLC-001-Completion-Gate-Checker.md",
+    "README.md",
+    "docs/testing/AI-SDLC-002/GREEN-AI-SDLC-002-Native-Gate-Checker.md",
     "docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Native-Gate-Checker.md",
     "scripts/runtime-smoke.mjs",
     "scripts/__tests__/runtime-smoke.test.mjs",
