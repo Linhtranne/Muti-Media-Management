@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { execSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveStoryArtifactPaths } from "./ai-sdlc-check.mjs";
 
 export function parseStoryFromPaths(filePaths) {
   const storyIds = new Set();
@@ -29,6 +31,34 @@ function runGitCommand(command) {
   }
 }
 
+async function isStoryReadyForEnforcement(storyId) {
+  try {
+    const resolved = await resolveStoryArtifactPaths(storyId);
+    if (!resolved.spec || !resolved.plan || !resolved.report) {
+      return false;
+    }
+    const specPath = path.resolve(resolved.spec);
+    const planPath = path.resolve(resolved.plan);
+    const reportPath = path.resolve(resolved.report);
+
+    const specContent = await readFile(specPath, "utf8").catch(() => null);
+    const planContent = await readFile(planPath, "utf8").catch(() => null);
+    const reportContent = await readFile(reportPath, "utf8").catch(() => null);
+
+    if (!specContent || !planContent || !reportContent) {
+      return false;
+    }
+
+    const specApproved = /status:\s*\*?approved\*?/i.test(specContent);
+    const planApproved = /status:\s*\*?approved\*?/i.test(planContent);
+    const isCompletionReport = reportContent.includes("AI-SDLC Completion Gate");
+
+    return specApproved && planApproved && isCompletionReport;
+  } catch {
+    return false;
+  }
+}
+
 async function runCli() {
   console.log("Checking AI-SDLC validation gate for staged changes...");
   
@@ -52,19 +82,37 @@ async function runCli() {
 
   // 4. Run validation if story IDs detected
   if (storyIds.length > 0) {
-    console.log(`Detected active story IDs: ${storyIds.join(", ")}`);
+    const storiesToValidate = [];
     for (const storyId of storyIds) {
-      console.log(`Running validation gate for ${storyId}...`);
-      try {
-        execSync(`npm run ai-sdlc:validate -- ${storyId}`, { stdio: "inherit" });
-      } catch {
-        console.error(`\n❌ AI-SDLC pre-commit validation gate FAILED for ${storyId}.`);
-        console.error("Please ensure all specs and plans are approved, and all tests pass before committing.");
-        console.error("You can bypass this gate in emergencies using: git commit --no-verify\n");
-        return 1;
+      const isStagedReport = stagedFiles.some(f => {
+        const norm = f.replace(/\\/g, "/");
+        return norm.includes("docs/reports/") &&
+               new RegExp(`REPORT[-_]${storyId}`, "i").test(norm) &&
+               !norm.includes("plan-setup");
+      });
+
+      if (isStagedReport && await isStoryReadyForEnforcement(storyId)) {
+        storiesToValidate.push(storyId);
       }
     }
-    console.log("✓ AI-SDLC pre-commit validation gate passed successfully!");
+
+    if (storiesToValidate.length > 0) {
+      console.log(`Detected active story IDs for completion validation: ${storiesToValidate.join(", ")}`);
+      for (const storyId of storiesToValidate) {
+        console.log(`Running validation gate for ${storyId}...`);
+        try {
+          execSync(`npm run ai-sdlc:validate -- ${storyId}`, { stdio: "inherit" });
+        } catch {
+          console.error(`\n❌ AI-SDLC pre-commit validation gate FAILED for ${storyId}.`);
+          console.error("Please ensure all specs and plans are approved, and all tests pass before committing.");
+          console.error("You can bypass this gate in emergencies using: git commit --no-verify\n");
+          return 1;
+        }
+      }
+      console.log("✓ AI-SDLC pre-commit validation gate passed successfully!");
+    } else {
+      console.log(`Detected active story IDs: ${storyIds.join(", ")}, but no completion reports are staged or ready. Skipping automated gate checks.`);
+    }
   } else {
     console.log("No active STORY-ID detected from staged files or branch. Skipping automated gate checks.");
   }
