@@ -18,13 +18,13 @@ MediaOps Composability là nền tảng backend vận hành nội dung đa kênh
 
 Agent phải ưu tiên đọc theo thứ tự sau trước khi lập plan hoặc sửa code:
 
-1. `docs/architecture/06_Architecture_Composability.md`
+1. [[docs/architecture/06_Architecture_Composability.md|06_Architecture_Composability.md]]
    - Xác định layer, boundary, flow tổng thể.
-2. `docs/architecture/11_Coding_Convention.md`
+2. [[docs/architecture/11_Coding_Convention.md|11_Coding_Convention.md]]
    - Quy tắc code, test, security, report.
-3. `docs/requirements/04_Product_Backlog.md`
+3. [[docs/requirements/04_Product_Backlog.md|04_Product_Backlog.md]]
    - User Story, Acceptance Criteria, Business Rules.
-4. `docs/requirements/05_Function_Flow_Logic_Register.md`
+4. [[docs/requirements/05_Function_Flow_Logic_Register.md|05_Function_Flow_Logic_Register.md]]
    - Function-level flow, trigger, input, output, error handling, audit.
 5. `docs/plans/**`
    - Plan đã chốt cho từng US, nếu có.
@@ -159,4 +159,63 @@ For any non-trivial task:
 6. Update FL register/report when behavior changes.
 7. Run the validation gate that matches the risk.
 8. Report verified facts separately from unverified assumptions.
+
+## 9. Vault Document Registry
+
+Here is a list of all documents currently tracked in this repository vault:
+
+### Requirements & Backlogs
+- [[docs/requirements/03_SRS_MediaOps_Composability.md|03_SRS_MediaOps_Composability]]
+- [[docs/requirements/04_Product_Backlog.md|04_Product_Backlog]]
+- [[docs/requirements/05_Function_Flow_Logic_Register.md|05_Function_Flow_Logic_Register]]
+- [[docs/requirements/13_Sprint_1_Backlog.md|13_Sprint_1_Backlog]]
+- [[docs/requirements/BRD.md|BRD]]
+- [[docs/requirements/US-AI-SDLC-001-Completion-Gate-Checker.md|US-AI-SDLC-001]]
+- [[docs/requirements/US-AI-SDLC-002-Native-Gate-Checker.md|US-AI-SDLC-002]]
+
+### System Specifications
+- [[docs/specs/SPEC-PROJECT-MediaOps-Composability.md|SPEC-PROJECT-MediaOps-Composability]]
+- [[docs/specs/SPEC-US-013-Notion-Context-Loader.md|SPEC-US-013-Notion-Context-Loader]]
+- [[docs/specs/SPEC-AI-SDLC-001-Completion-Gate-Checker.md|SPEC-AI-SDLC-001-Completion-Gate-Checker]]
+- [[docs/specs/SPEC-AI-SDLC-002-Native-Gate-Checker.md|SPEC-AI-SDLC-002-Native-Gate-Checker]]
+
+### Architecture & Setup
+- [[docs/architecture/06_Architecture_Composability.md|06_Architecture_Composability]]
+- [[docs/architecture/11_Coding_Convention.md|11_Coding_Convention]]
+- [[docs/setup/LOCAL-STAGING-STARTUP.md|LOCAL-STAGING-STARTUP]]
+
+### Implementation Plans
+- [[docs/plans/AI-SDLC-001/PLAN-AI-SDLC-001-Completion-Gate-Checker.md|PLAN-AI-SDLC-001-Completion-Gate-Checker]]
+- [[docs/plans/AI-SDLC-002/PLAN-AI-SDLC-002-Native-Gate-Checker.md|PLAN-AI-SDLC-002-Native-Gate-Checker]]
+- [[docs/plans/US-012/PLAN-us-012-basic-campaign-reporting.md|PLAN-us-012-basic-campaign-reporting]]
+- [[docs/plans/US-013/PLAN-us-013-notion-knowledge-brief-plane.md|PLAN-us-013-notion-knowledge-brief-plane]]
+
+### Reports & Compliance Audit
+- [[docs/reports/AI-SDLC-001/REPORT-AI-SDLC-001-Completion-Gate-Checker.md|REPORT-AI-SDLC-001-Completion-Gate-Checker]]
+- [[docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Native-Gate-Checker.md|REPORT-AI-SDLC-002-Native-Gate-Checker]]
+- [[docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Validate-Gate-Integration.md|REPORT-AI-SDLC-002-Validate-Gate-Integration]]
+- [[docs/reports/REPORT-US-013-integration-2026-06-24.md|REPORT-US-013-integration-2026-06-24]]
+- [[docs/reports/REPORT-ai-sdlc-compliance-current-state.md|REPORT-ai-sdlc-compliance-current-state]]
+- [[docs/reports/REPORT-eslint-cleanup-2026-06-24.md|REPORT-eslint-cleanup-2026-06-24]]
+- [[docs/reports/REPORT-local-staging-startup-commands-2026-06-07.md|REPORT-local-staging-startup-commands-2026-06-07]]
+- [[docs/reports/REPORT-mediaops-backend-interview-guide-2026-06-08.md|REPORT-mediaops-backend-interview-guide-2026-06-08]]
+- [[docs/reports/REPORT-project-level-spec-2026-06-29.md|REPORT-project-level-spec-2026-06-29]]
+- [[docs/reports/REPORT-us-011-facebook-mock-mode-2026-06-07.md|REPORT-us-011-facebook-mock-mode-2026-06-07]]
+- [[docs/reports/REPORT-us-011-oauth-callback-state-fix-2026-06-07.md|REPORT-us-011-oauth-callback-state-fix-2026-06-07]]
+- [[docs/reports/REPORT-us-012-campaign-reporting-2026-06-03.md|REPORT-us-012-campaign-reporting-2026-06-03]]
+- [[docs/reports/US-012/REPORT-us-012-plan-setup-2026-06-03.md|REPORT-us-012-plan-setup-2026-06-03]]
+- [[docs/reports/US-013/REPORT-us-013-implementation-2026-06-03.md|REPORT-us-013-implementation-2026-06-03]]
+- [[docs/reports/US-013/REPORT-us-013-plan-setup-2026-06-03.md|REPORT-us-013-plan-setup-2026-06-03]]
+
+### Testing & Verification
+- [[docs/testing/AI-SDLC-001/APPROVAL-AI-SDLC-001-Completion-Gate-Checker.md|APPROVAL-AI-SDLC-001]]
+- [[docs/testing/AI-SDLC-001/BASELINE-AI-SDLC-001-Completion-Gate-Checker.md|BASELINE-AI-SDLC-001]]
+- [[docs/testing/AI-SDLC-001/BRAINSTORM-AI-SDLC-001-Completion-Gate-Checker.md|BRAINSTORM-AI-SDLC-001]]
+- [[docs/testing/AI-SDLC-001/GREEN-AI-SDLC-001-Completion-Gate-Checker.md|GREEN-AI-SDLC-001]]
+- [[docs/testing/AI-SDLC-001/RED-AI-SDLC-001-Completion-Gate-Checker.md|RED-AI-SDLC-001]]
+- [[docs/testing/AI-SDLC-001/REFACTOR-AI-SDLC-001-Completion-Gate-Checker.md|REFACTOR-AI-SDLC-001]]
+- [[docs/testing/AI-SDLC-002/BRAINSTORM-AI-SDLC-002-Native-Gate-Checker.md|BRAINSTORM-AI-SDLC-002]]
+- [[docs/testing/AI-SDLC-002/GREEN-AI-SDLC-002-Native-Gate-Checker.md|GREEN-AI-SDLC-002]]
+- [[docs/testing/AI-SDLC-002/RED-AI-SDLC-002-Native-Gate-Checker.md|RED-AI-SDLC-002]]
+- [[docs/testing/10_Test_Case_And_Bug_Report_Template.md|Test_Case_And_Bug_Report_Template]]
 
