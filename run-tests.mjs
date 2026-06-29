@@ -70,7 +70,10 @@ const testFiles = [
   // US-014 topology tests
   "apps/orchestrator/dist/queue/__tests__/topologyConfig.test.js",
   "apps/orchestrator/dist/queue/__tests__/rabbitmqPublisher.test.js",
-  "apps/orchestrator/dist/queue/__tests__/rabbitmqConsumer.test.js"
+  "apps/orchestrator/dist/queue/__tests__/rabbitmqConsumer.test.js",
+
+  // AI-SDLC automation pilot
+  "scripts/__tests__/ai-sdlc-check.test.mjs"
 ];
 
 const absoluteFiles = testFiles.map((f) => path.resolve(__dirname, f));
