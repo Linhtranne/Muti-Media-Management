@@ -1,0 +1,117 @@
+{
+  "base": {
+    "canonical_name": "MediaOps Control Plane",
+    "accepted_aliases": ["MediaOps Composability"],
+    "purpose": "Airtable Control Plane for campaign, post, approval, calendar, and channel account stubs.",
+    "non_responsibilities": [
+      "queue processing",
+      "audit ledger",
+      "token storage",
+      "high-volume inbox",
+      "publish execution"
+    ]
+  },
+  "tables": [
+    {
+      "name": "Campaigns",
+      "fields": [
+        { "name": "Autonumber", "type": "autonumber", "required": true },
+        { "name": "campaign_id", "type": "formula_primary", "formula": "\"CMP-\" & {Autonumber}", "required": true },
+        { "name": "name", "type": "single_line_text", "required": true },
+        { "name": "objective", "type": "long_text", "required": false },
+        { "name": "start_date", "type": "date", "required": false, "timezone": "GMT/UTC" },
+        { "name": "end_date", "type": "date", "required": false, "timezone": "GMT/UTC" },
+        { "name": "owner", "type": "collaborator", "required": false },
+        { "name": "status", "type": "single_select", "required": true, "options": ["Draft", "Active", "Paused", "Completed"] },
+        { "name": "notion_brief_url", "type": "url", "required": false },
+        { "name": "posts", "type": "linked_records", "linked_table": "Posts", "allow_multiple": true, "required": false }
+      ],
+      "views": [
+        {
+          "name": "Campaign Overview",
+          "type": "grid",
+          "sort": [{ "field": "start_date", "direction": "desc" }]
+        }
+      ]
+    },
+    {
+      "name": "Posts",
+      "fields": [
+        { "name": "Autonumber", "type": "autonumber", "required": true },
+        { "name": "post_id", "type": "formula_primary", "formula": "\"PST-\" & {Autonumber}", "required": true },
+        { "name": "campaign_id", "type": "linked_records", "linked_table": "Campaigns", "allow_multiple": false, "required": true },
+        { "name": "title", "type": "single_line_text", "required": true },
+        { "name": "master_copy", "type": "long_text", "required": true, "rich_text": false },
+        { "name": "cta_url", "type": "url", "required": false },
+        { "name": "asset_links", "type": "long_text", "required": false, "format": "newline_separated_urls" },
+        { "name": "target_channels", "type": "multiple_select", "required": true, "options": ["Facebook"] },
+        { "name": "connected_channel_accounts", "type": "linked_records", "linked_table": "Channel Accounts", "allow_multiple": true, "required": false },
+        { "name": "scheduled_at", "type": "date_time", "required": true, "timezone": "GMT/UTC", "clock": "24h" },
+        { "name": "status", "type": "single_select", "required": true, "options": ["Draft", "Review", "Approved", "Scheduled", "Published", "Failed"] },
+        { "name": "reviewer", "type": "collaborator", "required": false },
+        { "name": "approved_at", "type": "date_time", "required": false, "timezone": "GMT/UTC", "clock": "24h", "write_policy": "automation_only" },
+        { "name": "is_master_copy_present", "type": "formula", "formula": "LEN(TRIM({master_copy} & \"\")) > 0" },
+        { "name": "has_connected_channel_accounts", "type": "formula_or_rollup_formula", "formula": "COUNTA({connected_channel_accounts}) > 0" },
+        { "name": "is_scheduled_in_future", "type": "formula", "formula": "IF({scheduled_at}, IS_AFTER({scheduled_at}, NOW()), 0)" },
+        {
+          "name": "is_valid_for_approval",
+          "type": "formula",
+          "formula": "IF(AND({is_master_copy_present}, {has_connected_channel_accounts}, {is_scheduled_in_future}), 1, 0)"
+        },
+        {
+          "name": "approval_blockers",
+          "type": "formula",
+          "formula": "TRIM(IF(NOT({is_master_copy_present}), \"[Blocker] Master copy is empty; \", \"\") & IF(NOT({has_connected_channel_accounts}), \"[Blocker] Missing active connected account stub; \", \"\") & IF(NOT({is_scheduled_in_future}), \"[Blocker] scheduled_at must be in the future; \", \"\"))"
+        }
+      ],
+      "views": [
+        { "name": "Post Pipeline", "type": "kanban", "group_by": "status" },
+        { "name": "Needs Review", "type": "grid", "filter": "status = Review", "sort": [{ "field": "scheduled_at", "direction": "asc" }] },
+        { "name": "Approved Handoff", "type": "grid", "filter": "status = Approved AND is_valid_for_approval = 1", "sort": [{ "field": "scheduled_at", "direction": "asc" }] },
+        { "name": "Invalid Approved / Approval Blocked", "type": "grid", "filter": "status = Approved AND is_valid_for_approval = 0", "sort": [{ "field": "scheduled_at", "direction": "asc" }] },
+        { "name": "Publishing Calendar", "type": "calendar", "date_field": "scheduled_at", "filter": "status in Review, Approved, Scheduled, Published, Failed" },
+        { "name": "Draft Planning Calendar", "type": "calendar", "date_field": "scheduled_at", "filter": "status = Draft AND scheduled_at is not empty" },
+        { "name": "Failed Posts", "type": "grid", "filter": "status = Failed", "sort": [{ "field": "scheduled_at", "direction": "desc" }] }
+      ],
+      "automations": [
+        {
+          "name": "Revert Invalid Approvals",
+          "covers": ["GR-01", "GR-04", "GR-05", "GR-06"],
+          "trigger": "status = Approved AND is_valid_for_approval = 0",
+          "actions": [
+            "set status to Review",
+            "keep reviewer unchanged",
+            "clear approved_at if populated during invalid approval attempt",
+            "surface approval_blockers in notification or visible field"
+          ]
+        },
+        {
+          "name": "Timestamp Valid Approvals",
+          "covers": ["GR-02"],
+          "trigger": "status = Approved AND is_valid_for_approval = 1 AND approved_at is empty",
+          "actions": ["set approved_at to trigger execution time"]
+        }
+      ]
+    },
+    {
+      "name": "Channel Accounts",
+      "fields": [
+        { "name": "platform", "type": "single_select", "required": true, "options": ["Facebook"] },
+        { "name": "display_name", "type": "single_line_text", "required": true },
+        { "name": "channel_account_id", "type": "formula_primary", "formula": "{platform} & \": \" & {display_name}", "required": true },
+        { "name": "status", "type": "single_select", "required": true, "options": ["Connected", "Disconnected", "Expired"] },
+        { "name": "posts", "type": "linked_records", "linked_table": "Posts", "allow_multiple": true, "required": false }
+      ],
+      "views": [
+        { "name": "Connected Accounts", "type": "grid", "sort": [{ "field": "channel_account_id", "direction": "asc" }] }
+      ]
+    }
+  ],
+  "security_rules": [
+    "No raw tokens or secrets in Airtable.",
+    "No approved_version field in Airtable.",
+    "No queue state or audit ledger in Airtable.",
+    "No publish job creation from Airtable."
+  ]
+}
+

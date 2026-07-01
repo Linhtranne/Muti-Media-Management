@@ -84,3 +84,43 @@ Key mappings:
 
 Windows path: `C:\Users\Hi\.spawner\skills\`
 
+## 6. Pre-Work: Read Project Docs First
+
+**Before implementing ANY task, read relevant project docs.**
+
+Required reading:
+1. `docs/architecture/06_Architecture_Composability.md` — system architecture, layer boundaries
+2. `docs/architecture/11_Coding_Convention.md` — code rules, naming, file structure
+3. `docs/requirements/04_Product_Backlog.md` — acceptance criteria for the User Story
+4. `docs/requirements/05_Function_Flow_Logic_Register.md` — function-level logic and triggers
+5. `docs/project-mgmt/07_Risk_Assumption_Decision_Log.md` — decisions already made
+
+If a `docs/plans/PLAN-{task-slug}.md` exists for the current task, read it FIRST.
+
+Rules:
+- Don't just open docs — extract constraints and apply them.
+- If docs contradict: Architecture > Coding Convention > Backlog.
+- Mention which docs you read and what constraints you extracted.
+
+## 7. Post-Work: Generate Report
+
+**After completing ANY task, generate a report file.**
+
+File: `docs/reports/REPORT-{task-slug}-{YYYY-MM-DD}.md`
+
+Report must include:
+- **Summary**: What was accomplished
+- **What Was Done**: Itemized list of changes
+- **How It Was Done**: Technical approach, tools/skills used
+- **Files Changed**: Table of file paths, actions (Create/Modify/Delete), descriptions
+- **Impact & Purpose**: What the change achieves in the system
+- **Decisions Made**: Rationale and alternatives considered
+- **Verification**: Tests, docs updated, secrets check, ACs met
+- **Open Items**: Remaining work or next steps
+
+Rules:
+- Report is NOT optional. Every completed task MUST have a report.
+- Keep reports factual — no speculation, no filler.
+- If task spans multiple sessions, update the same report file.
+
+

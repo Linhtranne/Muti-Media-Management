@@ -1,0 +1,34 @@
+{
+	"nodes":[
+		{"id":"group_reqs","type":"group","x":-100,"y":-80,"width":500,"height":220,"label":"1. Requirements (User Stories)"},
+		{"id":"node_us","type":"file","file":"docs/requirements/US-AI-SDLC-002-Native-Gate-Checker.md","x":0,"y":-30,"width":300,"height":120},
+		{"id":"group_specs","type":"group","x":-100,"y":180,"width":500,"height":220,"label":"2. System Design & Specifications (Specs)"},
+		{"id":"node_spec","type":"file","file":"docs/specs/SPEC-AI-SDLC-002-Native-Gate-Checker.md","x":0,"y":230,"width":300,"height":120},
+		{"id":"group_plans","type":"group","x":-100,"y":440,"width":500,"height":220,"label":"3. Implementation Checklist (Plans)"},
+		{"id":"node_plan","type":"file","file":"docs/plans/AI-SDLC-002/PLAN-AI-SDLC-002-Native-Gate-Checker.md","x":0,"y":490,"width":300,"height":120},
+		{"id":"group_code","type":"group","x":-450,"y":700,"width":1200,"height":220,"label":"4. Code Implementation"},
+		{"id":"node_code_check","type":"file","file":"scripts/ai-sdlc-check.mjs","x":-400,"y":750,"width":240,"height":120},
+		{"id":"node_code_hook","type":"file","file":"scripts/pre-commit-gate.mjs","x":-120,"y":750,"width":240,"height":120},
+		{"id":"node_code_smoke","type":"file","file":"scripts/runtime-smoke.mjs","x":160,"y":750,"width":240,"height":120},
+		{"id":"node_code_install","type":"file","file":"scripts/install-hooks.mjs","x":440,"y":750,"width":240,"height":120},
+		{"id":"group_testing","type":"group","x":-450,"y":960,"width":1200,"height":220,"label":"5. Testing & Validation Evidence"},
+		{"id":"node_test_check","type":"file","file":"scripts/__tests__/ai-sdlc-quality.test.mjs","x":-400,"y":1010,"width":240,"height":120},
+		{"id":"node_test_hook","type":"file","file":"scripts/__tests__/pre-commit-gate.test.mjs","x":-120,"y":1010,"width":240,"height":120},
+		{"id":"node_test_smoke","type":"file","file":"scripts/__tests__/runtime-smoke.test.mjs","x":160,"y":1010,"width":240,"height":120},
+		{"id":"node_evidence_green","type":"file","file":"docs/testing/AI-SDLC-002/GREEN-AI-SDLC-002-Native-Gate-Checker.md","x":440,"y":1010,"width":240,"height":120},
+		{"id":"group_reports","type":"group","x":-100,"y":1220,"width":500,"height":220,"label":"6. Completion Report (Audit & Hand-off)"},
+		{"id":"node_report","type":"file","file":"docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Native-Gate-Checker.md","x":0,"y":1270,"width":300,"height":120}
+	],
+	"edges":[
+		{"id":"edge_us_to_spec","fromNode":"node_us","fromSide":"bottom","toNode":"node_spec","toSide":"top","label":"AC & Specs defined"},
+		{"id":"edge_spec_to_plan","fromNode":"node_spec","fromSide":"bottom","toNode":"node_plan","toSide":"top","label":"Checklist structured"},
+		{"id":"edge_plan_to_code1","fromNode":"node_plan","fromSide":"bottom","toNode":"node_code_check","toSide":"top","label":"Implements validation"},
+		{"id":"edge_plan_to_code2","fromNode":"node_plan","fromSide":"bottom","toNode":"node_code_hook","toSide":"top","label":"Implements hook"},
+		{"id":"edge_plan_to_code3","fromNode":"node_plan","fromSide":"bottom","toNode":"node_code_smoke","toSide":"top","label":"Implements smoke test"},
+		{"id":"edge_code_check_to_test","fromNode":"node_code_check","fromSide":"bottom","toNode":"node_test_check","toSide":"top","label":"Verified by"},
+		{"id":"edge_code_hook_to_test","fromNode":"node_code_hook","fromSide":"bottom","toNode":"node_test_hook","toSide":"top","label":"Verified by"},
+		{"id":"edge_code_smoke_to_test","fromNode":"node_code_smoke","fromSide":"bottom","toNode":"node_test_smoke","toSide":"top","label":"Verified by"},
+		{"id":"edge_code_install_to_green","fromNode":"node_code_install","fromSide":"bottom","toNode":"node_evidence_green","toSide":"top","label":"Verified by"},
+		{"id":"edge_tests_to_report","fromNode":"node_evidence_green","fromSide":"bottom","toNode":"node_report","toSide":"top","label":"Generates verified evidence"}
+	]
+}

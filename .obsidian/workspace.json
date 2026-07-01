@@ -1,0 +1,229 @@
+{
+  "main": {
+    "id": "45ee4a1c13eeed1a",
+    "type": "split",
+    "children": [
+      {
+        "id": "4f00af788abb7be0",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "62312619c339da9a",
+            "type": "leaf",
+            "state": {
+              "type": "canvas",
+              "state": {
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
+                "viewState": {
+                  "x": 150,
+                  "y": 1489.1725932350391,
+                  "zoom": -0.536182334429111
+                }
+              },
+              "icon": "lucide-layout-dashboard",
+              "title": "AI-SDLC-Entity-Map"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ec8924a4463e7cf3",
+    "type": "split",
+    "children": [
+      {
+        "id": "84f24754b449a6a4",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "c0fa1d341afccb43",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "dd5a1ce6c28cfcd5",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "8c5591d5831e2fac",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "e21ae7ff69a1f0b9",
+    "type": "split",
+    "children": [
+      {
+        "id": "af8b70adf331fd13",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "43495b019e90eff5",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for AI-SDLC-Entity-Map"
+            }
+          },
+          {
+            "id": "de9a96a6b832f2be",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from AI-SDLC-Entity-Map"
+            }
+          },
+          {
+            "id": "a15323702e883bdf",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "a9e3e143e6cbfa8b",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "04ece2df65b3e6b3",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of AI-SDLC-Entity-Map"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "62312619c339da9a",
+  "lastOpenFiles": [
+    "node_modules/flatted/golang/README.md",
+    "node_modules/superagent/node_modules/debug/README.md",
+    "node_modules/@modelcontextprotocol/sdk/node_modules/raw-body/README.md",
+    "node_modules/@typescript-eslint/parser/node_modules/ms/readme.md",
+    "docs/plans/US-001/US-001-field-types-and-constraints.md",
+    "node_modules/vary/HISTORY.md",
+    "node_modules/jose/README.md",
+    "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
+    "docs/requirements/03_SRS_MediaOps_Composability.md",
+    "docs/requirements/04_Product_Backlog.md",
+    "docs/requirements/05_Function_Flow_Logic_Register.md",
+    "docs/requirements/13_Sprint_1_Backlog.md",
+    "docs/requirements/US-AI-SDLC-002-Native-Gate-Checker.md",
+    "docs/requirements/US-AI-SDLC-001-Completion-Gate-Checker.md",
+    "README.md",
+    "docs/testing/AI-SDLC-002/GREEN-AI-SDLC-002-Native-Gate-Checker.md",
+    "docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Native-Gate-Checker.md",
+    "scripts/runtime-smoke.mjs",
+    "scripts/__tests__/runtime-smoke.test.mjs",
+    "scripts/install-hooks.mjs",
+    "scripts/pre-commit-gate.mjs",
+    "scripts/__tests__/pre-commit-gate.test.mjs",
+    "scripts/__tests__/ai-sdlc-trace.test.mjs",
+    "docs/testing/AI-SDLC-002/RED-AI-SDLC-002-Native-Gate-Checker.md",
+    "scripts/__tests__/ai-sdlc-quality.test.mjs",
+    "docs/testing/AI-SDLC-002/BRAINSTORM-AI-SDLC-002-Native-Gate-Checker.md",
+    "docs/testing/AI-SDLC-002",
+    "docs/plans/AI-SDLC-002/PLAN-AI-SDLC-002-Native-Gate-Checker.md",
+    "docs/plans/AI-SDLC-002",
+    "docs/specs/SPEC-AI-SDLC-002-Native-Gate-Checker.md",
+    "PRODUCT.md",
+    "DESIGN.md",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "docs/specs/SPEC-US-013-Notion-Context-Loader.md",
+    "docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Validate-Gate-Integration.md",
+    "docs/reports/AI-SDLC-002"
+  ]
+}

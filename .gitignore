@@ -20,3 +20,4 @@ dist
 .roo
 .trae
 .windsurf
+*.tsbuildinfo

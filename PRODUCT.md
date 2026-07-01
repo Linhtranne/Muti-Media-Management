@@ -2,7 +2,7 @@
 
 ## Product Purpose
 
-MediaOps Composability là hệ sinh thái quản lý truyền thông đa kênh cho đội marketing, kết hợp Airtable Control Plane, Notion Knowledge & Brief Plane, AI Orchestrator, MCP Execution Plane, Slack/Teams Communication Plane và Operational Ledger.
+MediaOps Composability là hệ sinh thái quản lý truyền thông đa kênh cho đội marketing, kết hợp Airtable Control Plane, Notion Knowledge & Brief Plane, AI Orchestrator, MCP Execution Plane, RabbitMQ Event Bus, Slack/Teams Communication Plane và Operational Ledger.
 
 ## Register
 
@@ -22,6 +22,7 @@ product
 - Airtable là Control Plane cho workflow có cấu trúc.
 - Notion là Knowledge & Brief Plane cho tài liệu dài, brief và guideline.
 - AI Agent không gọi API mạng xã hội trực tiếp; execution đi qua MCP.
+- RabbitMQ xử lý queue/event bus; Postgres/InsForge là source of truth.
 - Mọi publish/reply/command quan trọng phải có audit và policy guardrail.
 - Token và secret không xuất hiện trong Airtable, Slack hoặc log thường.
 
