@@ -5,10 +5,10 @@ import { loadNotionContext } from "../ai/notion-context-loader.js";
 import { getPromptTemplate } from "../ai/prompt-registry.js";
 import type { LlmAdapter, LlmGenerateOptions } from "../ai/llmAdapter.js";
 import { validateStructuredOutput, ValidationError } from "../ai/structuredValidator.js";
-import { AiWorkerRepository } from "../ledger/aiWorkerRepository.js";
+import { AiWorkerRepository, type MarkAiCompletedResult } from "../ledger/aiWorkerRepository.js";
 import { createHash, randomUUID } from "node:crypto";
 import { LlmTimeoutError, LlmRateLimitError } from "../ai/llmAdapter.js";
-import type { AiErrorCode, AiComposerQueueMessage } from "@mediaops/shared-contracts";
+import type { AiErrorCode, AiComposerQueueMessage, AirtableAttachment } from "@mediaops/shared-contracts";
 import { NotionContextRefSchema } from "@mediaops/shared-contracts";
 
 const AI_ERROR_MESSAGE_MAX_LENGTH = 255;
@@ -17,11 +17,19 @@ const INVALID_NOTION_PAGE_ID_SSRF_MESSAGE = "Invalid Notion Page ID - SSRF preve
 const UNKNOWN_LOADER_ERROR = "Unknown loader error";
 const DEFAULT_CAMPAIGN_OBJECTIVE = "General brand awareness";
 const REVIEW_BLOCKED_STATUS = "Review Blocked";
-const NEEDS_REVIEW_STATUS = "Needs Review";
+const AI_GENERATION_NEEDS_REVIEW_STATUS = "needs_review";
+const AIRTABLE_POST_NEEDS_REVIEW_STATUS = "Needs Review";
 const NOT_APPLICABLE_VARIANT_ID = "N/A";
 const AI_VALIDATION_FAILED_NOTE_PREFIX = "AI validation failed";
 const AI_COMPOSER_SUCCESS_NOTE_PREFIX = "AI Composer generated Facebook variant successfully using prompt version";
 const NOTION_CONTEXT_FAILED_PREFIX = "Notion context failed";
+const MIN_TARGET_LENGTH = 1;
+const MAX_TARGET_WORD_COUNT = 5_000;
+const MAX_TARGET_CHARACTER_COUNT = 63_206;
+const WORD_COUNT_LENGTH_INSTRUCTION_PREFIX = "Write the Facebook body at approximately";
+const WORD_COUNT_LENGTH_INSTRUCTION_SUFFIX = "words. Stay close to this requested length while preserving the master copy intent.";
+const CHARACTER_COUNT_LENGTH_INSTRUCTION_PREFIX = "Write the Facebook body at approximately";
+const CHARACTER_COUNT_LENGTH_INSTRUCTION_SUFFIX = "characters. Stay close to this requested length while preserving the master copy intent.";
 
 function buildAiValidationFailedNote(errorCode: AiErrorCode, message: string): string {
   return `${AI_VALIDATION_FAILED_NOTE_PREFIX}: [${errorCode}] ${String(redact(message))}`;
@@ -29,6 +37,63 @@ function buildAiValidationFailedNote(errorCode: AiErrorCode, message: string): s
 
 function buildAiComposerSuccessNote(promptVersion: string): string {
   return `${AI_COMPOSER_SUCCESS_NOTE_PREFIX} ${promptVersion}.`;
+}
+
+function parsePositiveInteger(value: number | string | null | undefined, max: number): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const numericValue = typeof value === "number" ? value : Number.parseInt(value, 10);
+  if (!Number.isInteger(numericValue) || numericValue < MIN_TARGET_LENGTH || numericValue > max) {
+    return null;
+  }
+  return numericValue;
+}
+
+function buildLengthInstruction(fields: AirtableFields): string | null {
+  const wordCount = parsePositiveInteger(
+    fields.desired_word_count ?? fields.target_word_count ?? fields.word_count,
+    MAX_TARGET_WORD_COUNT
+  );
+  if (wordCount !== null) {
+    return `${WORD_COUNT_LENGTH_INSTRUCTION_PREFIX} ${wordCount} ${WORD_COUNT_LENGTH_INSTRUCTION_SUFFIX}`;
+  }
+
+  const characterCount = parsePositiveInteger(
+    fields.desired_character_count ?? fields.target_character_count ?? fields.character_count,
+    MAX_TARGET_CHARACTER_COUNT
+  );
+  if (characterCount !== null) {
+    return `${CHARACTER_COUNT_LENGTH_INSTRUCTION_PREFIX} ${characterCount} ${CHARACTER_COUNT_LENGTH_INSTRUCTION_SUFFIX}`;
+  }
+
+  return null;
+}
+
+type AirtableAssetLinks = string | string[] | AirtableAttachment[] | null | undefined;
+
+interface AssetLinkRef {
+  url: string;
+  filename?: string;
+  mimeType?: string;
+}
+
+function isAirtableAttachment(value: unknown): value is AirtableAttachment {
+  return typeof value === "object" && value !== null && "url" in value && typeof (value as { url?: unknown }).url === "string";
+}
+
+function normalizeAssetLinks(assetLinks: AirtableAssetLinks): AssetLinkRef[] {
+  const links = Array.isArray(assetLinks) ? assetLinks : (assetLinks ? assetLinks.split(/[\n,]+/) : []);
+  return links
+    .map((link) => isAirtableAttachment(link)
+      ? { url: link.url.trim(), filename: link.filename, mimeType: link.type }
+      : { url: link.trim() })
+    .filter((link) => {
+      try {
+        const url = new URL(link.url);
+        return url.protocol === "https:" || url.protocol === "http:";
+      } catch {
+        return false;
+      }
+    });
 }
 import { z } from "zod";
 import { redact } from "../lib/redact.js";
@@ -54,6 +119,13 @@ interface AirtableFields {
   campaign_id?: string[];
   cta_url?: string;
   post_id?: string;
+  asset_links?: AirtableAssetLinks;
+  desired_word_count?: number | string | null;
+  target_word_count?: number | string | null;
+  word_count?: number | string | null;
+  desired_character_count?: number | string | null;
+  target_character_count?: number | string | null;
+  character_count?: number | string | null;
 }
 
 interface ValidatedOutput {
@@ -67,6 +139,7 @@ interface PromptContext {
   ctaUrl: string | undefined;
   campaignObjective: string;
   notionContext: string | null;
+  lengthInstruction: string | null;
 }
 
 export class AiComposerWorker {
@@ -296,7 +369,8 @@ export class AiComposerWorker {
       masterCopy: fields.master_copy || "",
       ctaUrl: fields.cta_url,
       campaignObjective: campaignObjective || DEFAULT_CAMPAIGN_OBJECTIVE,
-      notionContext
+      notionContext,
+      lengthInstruction: buildLengthInstruction(fields)
     };
   }
 
@@ -375,12 +449,12 @@ export class AiComposerWorker {
     return { errorStatus: { success: false, status: "validation_failed", errorCode: err.errorCode } };
   }
 
-  private async persistVariant(validatedOutput: ValidatedOutput, fields: AirtableFields, workflowRunId: string, aiGenerationRunId: string, airtableRecordId: string, approvedVersion: number, correlationId: string): Promise<{ variantId: string } | { errorStatus: AiWorkerResult }> {
+  private async persistVariant(validatedOutput: ValidatedOutput, fields: AirtableFields, workflowRunId: string, aiGenerationRunId: string, airtableRecordId: string, approvedVersion: number, correlationId: string): Promise<MarkAiCompletedResult | { errorStatus: AiWorkerResult }> {
     try {
-      const variantId = await this.database.transaction(this.workspaceId, async (client) => {
-        return this.repository.markCompleted(client, { workspaceId: this.workspaceId, workflowRunId, aiGenerationRunId, airtableRecordId, campaignId: fields.campaign_id?.[0] || null, approvedVersion, promptVersion: this.promptVersion, output: validatedOutput, correlationId, postId: fields.post_id || airtableRecordId, syncRetryNeeded: false });
+      const completed = await this.database.transaction(this.workspaceId, async (client) => {
+        return this.repository.markCompleted(client, { workspaceId: this.workspaceId, workflowRunId, aiGenerationRunId, airtableRecordId, campaignId: fields.campaign_id?.[0] || null, approvedVersion, promptVersion: this.promptVersion, output: validatedOutput, assetLinks: normalizeAssetLinks(fields.asset_links), correlationId, postId: fields.post_id || airtableRecordId, syncRetryNeeded: false });
       });
-      return { variantId };
+      return completed;
     } catch (err) {
       this.logger.error("Failed to persist variant and complete AI run in database", { error: String(err) });
       return { errorStatus: { success: false, status: "persistence_failed", errorMessage: String(err) } };
@@ -394,7 +468,12 @@ export class AiComposerWorker {
       if (latestPost.fields.status !== "Approved") {
         throw new Error(`Airtable optimistic guard failed: status is ${latestPost.fields.status ?? "unknown"}`);
       }
-      await this.airtableClient.updateVariantDraft(airtableRecordId, variantId, { variant_draft: validatedOutput.body, variant_hashtags: validatedOutput.hashtags, variant_cta_url: validatedOutput.cta_url || null, ai_generation_status: NEEDS_REVIEW_STATUS, ai_review_notes: buildAiComposerSuccessNote(this.promptVersion) }, this.airtableFieldMap);
+      await this.airtableClient.updateVariantDraft(airtableRecordId, variantId, { variant_draft: validatedOutput.body, variant_hashtags: validatedOutput.hashtags, variant_cta_url: validatedOutput.cta_url || null, ai_generation_status: AI_GENERATION_NEEDS_REVIEW_STATUS, ai_review_notes: buildAiComposerSuccessNote(this.promptVersion) }, this.airtableFieldMap);
+      try {
+        await this.airtableClient.updateRecordStatus(this.workspaceId, airtableRecordId, AIRTABLE_POST_NEEDS_REVIEW_STATUS);
+      } catch (statusErr) {
+        this.logger.warn("Airtable draft content synced but status update failed", { airtableRecordId, error: String(statusErr) });
+      }
       this.logger.info("Successfully synced variant to Airtable", { airtableRecordId });
     } catch (airtableErr) {
       this.logger.error("Airtable variant sync failed. Setting sync_retry_needed = true in Ledger.", { airtableRecordId, error: String(airtableErr) });
@@ -432,7 +511,7 @@ export class AiComposerWorker {
       return { action: "ack", status: "retryable_failed", errorCode: result.errorCode };
     }
 
-    if (result.status === "persistence_failed" || result.status === "claim_failed") {
+    if (result.status === "persistence_failed" || result.status === "claim_failed" || result.status === "policy_publish_failed") {
       return { action: "nack_requeue", status: result.status, errorCode: result.errorCode };
     }
 

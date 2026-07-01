@@ -42,6 +42,7 @@ const DEFAULT_LLM_TIMEOUT_MS = 30_000;
 const HTTP_BAD_GATEWAY = 502;
 const HTTP_SERVICE_UNAVAILABLE = 503;
 const HTTP_GATEWAY_TIMEOUT = 504;
+const GEMINI_MODEL_PREFIX = "models/";
 
 export interface LlmAdapter {
   generateContent(
@@ -67,7 +68,9 @@ export class GeminiLlmAdapter implements LlmAdapter {
 
   constructor(apiKey: string, model = "gemini-2.5-pro") {
     this.apiKey = apiKey;
-    this.model = model;
+    this.model = model.startsWith(GEMINI_MODEL_PREFIX)
+      ? model.slice(GEMINI_MODEL_PREFIX.length)
+      : model;
   }
 
   async generateContent(

@@ -16,10 +16,19 @@ export class McpPublishSchedulerRepository {
     // This query executes within a workspace-specific transaction context.
     // The transaction wrapper ensures RLS policies apply appropriately using the provided workspaceId.
     const result = await client.query<ScheduledJob>(
-      `SELECT id, workspace_id, variant_id, channel_account_id, scheduled_at, workflow_run_id 
-       FROM publish_jobs
-       WHERE status = 'validated' 
-         AND scheduled_at <= NOW()
+      `SELECT
+         pj.id,
+         pj.workspace_id,
+         pj.variant_id,
+         pj.channel_account_id,
+         pj.scheduled_at,
+         cv.workflow_run_id
+       FROM publish_jobs pj
+       JOIN content_variants cv
+         ON cv.id = pj.variant_id
+        AND cv.workspace_id = pj.workspace_id
+       WHERE pj.status = 'validated'
+         AND pj.scheduled_at <= NOW()
        LIMIT $1`,
       [limit]
     );

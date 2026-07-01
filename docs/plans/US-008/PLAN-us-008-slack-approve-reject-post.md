@@ -1,8 +1,34 @@
+# AI-SDLC Source-of-Truth Header for US-008
+
+status: approved
+
+## Goal
+
+Document the implemented Slack approve/reject post workflow as a historical plan retrofitted for the AI-SDLC gate.
+
+## Tasks
+
+- AC-001: Reject invalid Slack commands or malformed `/approve_post` and `/reject_post` arguments safely.
+- AC-002: Enforce `manager`/`admin` role mapping before approve/reject side effects.
+- AC-003: Update Airtable post approval/rejection state through the Slack post approval worker.
+- AC-004: Persist every command lifecycle in Ledger/audit logs without leaking secrets.
+
+## Done When
+
+- AC-001: Parser and route tests cover invalid command rejection.
+- AC-002: Route/repository tests cover unauthorized user rejection.
+- AC-003: Worker tests cover approve/reject Airtable update behavior.
+- AC-004: Audit/contract tests and `npm run ai-sdlc:validate -- US-008` pass.
+
+## Historical Status
+
+This file was originally written as an implementation plan. The codebase now contains the US-008 route, parser, worker, RabbitMQ consumer, migration, and tests. This header is an AI-SDLC retrofit section and does not claim original implementation-time RED evidence.
+
 # PLAN: US-008 Slack Approve/Reject Post Commands
 
 **Version:** 1.1  
 **Date:** 2026-06-02  
-**Status:** Approved — Implementation in progress  
+**Status:** Historical plan; implemented in codebase; retrofitted for AI-SDLC gate  
 **Related:** US-008, Epic E04 Communication Plane
 
 ---
@@ -747,3 +773,11 @@ WORKSPACE_ID=                           # Already present
 ## Approval Gate Before Coding
 
 ✅ **All decisions resolved.** Implementation can proceed in T-001 → T-002 → T-003 order (parallel where noted).
+
+
+## AI-SDLC AC Traceability (Retrofit Audit)
+
+- AC1: Planned and defined.
+- AC2: Planned and defined.
+- AC3: Planned and defined.
+- AC4: Planned and defined.

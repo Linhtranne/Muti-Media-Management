@@ -2,6 +2,7 @@ import "dotenv/config";
 import { z } from "zod";
 
 const DEFAULT_HTTP_PORT = 3000;
+const DEFAULT_AIRTABLE_STATUS_POLLER_INTERVAL_MS = 30_000;
 
 const AirtableFieldMapSchema = z.object({
   variant_draft: z.string().default("facebook_body"),
@@ -43,6 +44,8 @@ const EnvSchema = z.object({
   SLACK_CRISIS_CHANNEL_ID: z.string().optional(),
   COMMENT_RISK_KEYWORDS: z.string().optional(),
   COMMENT_SYNC_SCHEDULER_ENABLED: z.enum(["true", "false"]).default("false"),
+  AIRTABLE_STATUS_POLLER_ENABLED: z.enum(["true", "false"]).default("false"),
+  AIRTABLE_STATUS_POLLER_INTERVAL_MS: z.coerce.number().int().positive().default(DEFAULT_AIRTABLE_STATUS_POLLER_INTERVAL_MS),
   US006_EXECUTION_ENABLED: z.enum(["true", "false"]).default("false"),
   DM_INBOX_ENABLED: z.enum(["true", "false"]).default("false"),
   DM_SLA_HOURS: z.coerce.number().int().positive().default(2),
@@ -54,7 +57,7 @@ const EnvSchema = z.object({
   FACEBOOK_APP_ID: z.string().optional(),
   FACEBOOK_APP_SECRET: z.string().optional(),
   FACEBOOK_REDIRECT_URI: z.string().optional(),
-  FACEBOOK_REQUIRED_SCOPES: z.string().default("pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement"),
+  FACEBOOK_REQUIRED_SCOPES: z.string().default("pages_show_list,pages_read_engagement,pages_manage_posts"),
   FACEBOOK_MOCK_MODE: z.enum(["true", "false"]).default("false"),
   AIRTABLE_FIELD_MAP: z.string().optional().transform((val) => {
     if (!val) {

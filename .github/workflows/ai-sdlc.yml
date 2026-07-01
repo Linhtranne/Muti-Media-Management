@@ -1,0 +1,79 @@
+﻿name: AI-SDLC CI Gate
+
+# Pull requests always run the gate. Push events only run for story branches so
+# protected branches like main/dev do not turn red after merge commits whose ref
+# has no STORY-ID.
+on:
+  pull_request:
+  push:
+    branches:
+      - "US-*"
+      - "AI-SDLC-*"
+      - "**/US-*"
+      - "**/AI-SDLC-*"
+
+jobs:
+  ai-sdlc-gate:
+    name: AI-SDLC Story Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Detect STORY-ID
+        id: detect_story
+        run: |
+          STORY_IDS=$(node --no-warnings scripts/ci-story-detect.mjs)
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "No STORY-ID detected. Gate failed closed."
+            echo "Branch: $GITHUB_HEAD_REF / $GITHUB_REF_NAME"
+            echo "Name your branch like: feature/US-001-description"
+            exit 1
+          fi
+
+          echo "Detected story IDs:"
+          echo "$STORY_IDS"
+
+          echo "STORY_IDS<<EOF" >> "$GITHUB_ENV"
+          echo "$STORY_IDS" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+
+      - name: Validate story artifacts
+        run: |
+          FAILED=0
+          while IFS= read -r story_id; do
+            [ -z "$story_id" ] && continue
+            echo "Validating: $story_id"
+            if ! npm run story:validate -- "$story_id"; then
+              echo "Validation failed for $story_id"
+              FAILED=1
+            else
+              echo "Validation passed for $story_id"
+            fi
+          done <<< "$STORY_IDS"
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "One or more story validations failed."
+            echo "Fix all issues above before merging."
+            exit 1
+          fi
+
+          echo "All story validations passed."

@@ -1,3 +1,21 @@
+# AI-SDLC Retrofit Header for US-001
+
+## AI-SDLC Completion Gate
+
+| Gate | Evidence | Verdict |
+|:---|:---|:---|
+| Spec approved | docs/specs/SPEC-US-001.md | Pass |
+| Plan approved | docs/plans/US-001/ | Pass |
+| Red test evidence | docs/testing/US-001/RED-US-001.md | Partial |
+| AC-001 trace | Spec, plan, RED, and report mention AC-001 | Pass |
+| AC-002 trace | Spec, plan, RED, and report mention AC-002 | Pass |
+| AC-003 trace | Spec, plan, RED, and report mention AC-003 | Pass |
+| AC-004 trace | Spec, plan, RED, and report mention AC-004 | Pass |
+| Build/lint/test evidence | Run `npm run ai-sdlc:validate -- US-001` after retrofit | Pending |
+| Runtime smoke | Not run as part of documentation retrofit | Partial |
+
+Retrofit note: this section records compatibility with the new AI-SDLC gate. It does not claim complete historical TDD or production readiness.
+
 # Report: US-001 Product Scope Lock
 
 **Date:** 2026-05-20

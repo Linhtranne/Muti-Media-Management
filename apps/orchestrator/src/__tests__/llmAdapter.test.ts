@@ -35,4 +35,35 @@ describe("GeminiLlmAdapter Tests", () => {
       LlmRateLimitError
     );
   });
+
+  it("normalizes Gemini model names that include the models/ prefix", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestedUrl = "";
+    globalThis.fetch = async (input) => {
+      if (typeof input === "string") {
+        requestedUrl = input;
+      } else if (input instanceof URL) {
+        requestedUrl = input.toString();
+      } else {
+        requestedUrl = input.url;
+      }
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "OK" }] } }]
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    };
+
+    try {
+      const prefixedAdapter = new GeminiLlmAdapter("real-looking-key", "models/gemini-2.5-pro");
+      const result = await prefixedAdapter.generateContent("sys", "user", { maxRetries: 0 });
+
+      assert.equal(result, "OK");
+      assert.ok(requestedUrl.includes("/models/gemini-2.5-pro:generateContent"));
+      assert.ok(!requestedUrl.includes("/models/models/"));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

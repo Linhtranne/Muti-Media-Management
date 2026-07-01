@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { PolicyWorker } from "../workers/policyWorker.js";
+import { PolicyWorkerRepository } from "../ledger/policyWorkerRepository.js";
 
 function validMessage() {
   return {
@@ -235,5 +236,33 @@ describe("PolicyWorker", () => {
 
     assert.equal(result.action, "ack");
     assert.deepEqual(events, ["tx_begin", "tx_commit", "airtable_patch_failed", "tx_begin", "compensation_marked", "tx_commit", "publish_slack"]);
+  });
+
+  it("loads only active Facebook channel accounts with valid token status", async () => {
+    const queries: string[] = [];
+    const repository = new PolicyWorkerRepository();
+    const client = {
+      async query(text: string) {
+        queries.push(text);
+        if (text.includes("FROM content_variants")) {
+          return { rows: [context().variant] };
+        }
+        if (text.includes("FROM workflow_runs")) {
+          return { rows: [context().workflow] };
+        }
+        if (text.includes("FROM channel_accounts")) {
+          return { rows: [context().channelAccount] };
+        }
+        return { rows: [] };
+      }
+    };
+
+    await repository.loadAndLockContext(client as any, "ws_test_123", validMessage());
+
+    const channelQuery = queries.find((query) => query.includes("FROM channel_accounts"));
+    assert.ok(channelQuery);
+    assert.match(channelQuery, /lower\(platform\) = 'facebook'/);
+    assert.match(channelQuery, /status = 'active'/);
+    assert.match(channelQuery, /token_status = 'valid'/);
   });
 });

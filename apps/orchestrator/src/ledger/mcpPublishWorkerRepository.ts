@@ -12,6 +12,46 @@ export interface McpPublishContext {
   input: PublishPostInput | null;
 }
 
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
+const DOCUMENT_EXTENSIONS = [".pdf"];
+
+interface AssetLinkRef {
+  url: string;
+  filename?: string;
+  mimeType?: string;
+}
+
+function classifyAssetLink(asset: AssetLinkRef): "image" | "document" | "link" {
+  const normalizedUrl = asset.url.toLowerCase();
+  const normalizedFilename = asset.filename?.toLowerCase() ?? "";
+  const searchableAssetText = `${normalizedUrl} ${normalizedFilename}`;
+  if (asset.mimeType?.toLowerCase().startsWith("image/")) {
+    return "image";
+  }
+  if (IMAGE_EXTENSIONS.some((extension) => searchableAssetText.includes(extension))) {
+    return "image";
+  }
+  if (asset.mimeType?.toLowerCase() === "application/pdf") {
+    return "document";
+  }
+  if (DOCUMENT_EXTENSIONS.some((extension) => searchableAssetText.includes(extension))) {
+    return "document";
+  }
+  return "link";
+}
+
+function isAssetLinkRef(value: unknown): value is AssetLinkRef {
+  return typeof value === "object" && value !== null && "url" in value && typeof (value as { url?: unknown }).url === "string";
+}
+
+function normalizeAssetLinks(value: unknown): AssetLinkRef[] {
+  if (!Array.isArray(value)) return [];
+  const rawAssetLinks: unknown[] = value;
+  return rawAssetLinks
+    .map((item) => typeof item === "string" ? { url: item } : item)
+    .filter(isAssetLinkRef);
+}
+
 export class McpPublishWorkerRepository {
   async loadAndLockContext(
     client: pg.PoolClient,
@@ -40,8 +80,8 @@ export class McpPublishWorkerRepository {
       return null;
     }
 
-    const variantResult = await client.query<{ id: string; body: string; hashtags: string[]; cta_url: string | null; airtable_record_id: string }>(
-      `SELECT id, body, hashtags, cta_url, airtable_record_id FROM content_variants
+    const variantResult = await client.query<{ id: string; body: string; hashtags: string[]; cta_url: string | null; asset_links: unknown; airtable_record_id: string }>(
+      `SELECT id, body, hashtags, cta_url, asset_links, airtable_record_id FROM content_variants
        WHERE id = $1 AND workspace_id = $2`,
       [message.variantId, workspaceId]
     );
@@ -49,8 +89,8 @@ export class McpPublishWorkerRepository {
     const variant = variantResult.rows[0];
     if (!variant) return null;
 
-    const accountResult = await client.query<{ id: string; secret_ref: string }>(
-      `SELECT id, secret_ref FROM channel_accounts
+    const accountResult = await client.query<{ id: string; external_account_id: string; secret_ref: string }>(
+      `SELECT id, external_account_id, secret_ref FROM channel_accounts
        WHERE id = $1 AND workspace_id = $2`,
       [message.channelAccountId, workspaceId]
     );
@@ -71,15 +111,22 @@ export class McpPublishWorkerRepository {
     job.status = 'publishing';
 
     const hashtags = Array.isArray(variant.hashtags) ? variant.hashtags : [];
+    const assetLinks = normalizeAssetLinks(variant.asset_links);
+    const media = assetLinks.map((asset) => ({
+      type: classifyAssetLink(asset),
+      url: asset.url
+    }));
+    const fallbackLink = variant.cta_url ?? media.find((item) => item.type !== "image")?.url;
 
     const input: PublishPostInput = {
       jobRef: { jobId: job.id },
-      channelAccountId: account.id,
+      channelAccountId: account.external_account_id,
       secretRef: account.secret_ref,
       content: {
         body: variant.body,
         ...(hashtags.length > 0 ? { hashtags } : {}),
-        ...(variant.cta_url ? { link: variant.cta_url } : {})
+        ...(fallbackLink ? { link: fallbackLink } : {}),
+        ...(media.length > 0 ? { media } : {})
       }
     };
 
@@ -112,7 +159,14 @@ export class McpPublishWorkerRepository {
     try {
       await client.query(
         `UPDATE workflow_runs SET status = 'mcp_publish_completed' 
-         WHERE id = (SELECT workflow_run_id FROM publish_jobs WHERE id = $1)`,
+         WHERE id = (
+           SELECT cv.workflow_run_id
+           FROM publish_jobs pj
+           JOIN content_variants cv
+             ON cv.id = pj.variant_id
+            AND cv.workspace_id = pj.workspace_id
+           WHERE pj.id = $1
+         )`,
         [jobId]
       );
     } catch (error) {
@@ -175,7 +229,14 @@ export class McpPublishWorkerRepository {
     try {
       await client.query(
         `UPDATE workflow_runs SET status = 'mcp_publish_failed' 
-         WHERE id = (SELECT workflow_run_id FROM publish_jobs WHERE id = $1)`,
+         WHERE id = (
+           SELECT cv.workflow_run_id
+           FROM publish_jobs pj
+           JOIN content_variants cv
+             ON cv.id = pj.variant_id
+            AND cv.workspace_id = pj.workspace_id
+           WHERE pj.id = $1
+         )`,
         [jobId]
       );
     } catch (error) {

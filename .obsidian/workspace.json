@@ -11,17 +11,10 @@
             "id": "62312619c339da9a",
             "type": "leaf",
             "state": {
-              "type": "canvas",
-              "state": {
-                "file": "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
-                "viewState": {
-                  "x": 150,
-                  "y": 1489.1725932350391,
-                  "zoom": -0.536182334429111
-                }
-              },
-              "icon": "lucide-layout-dashboard",
-              "title": "AI-SDLC-Entity-Map"
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
             }
           }
         ]
@@ -188,6 +181,7 @@
   },
   "active": "62312619c339da9a",
   "lastOpenFiles": [
+    "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
     "node_modules/flatted/golang/README.md",
     "node_modules/superagent/node_modules/debug/README.md",
     "node_modules/@modelcontextprotocol/sdk/node_modules/raw-body/README.md",
@@ -195,7 +189,6 @@
     "docs/plans/US-001/US-001-field-types-and-constraints.md",
     "node_modules/vary/HISTORY.md",
     "node_modules/jose/README.md",
-    "docs/ai-sdlc/AI-SDLC-Entity-Map.canvas",
     "docs/requirements/03_SRS_MediaOps_Composability.md",
     "docs/requirements/04_Product_Backlog.md",
     "docs/requirements/05_Function_Flow_Logic_Register.md",
@@ -223,7 +216,6 @@
     "CLAUDE.md",
     "AGENTS.md",
     "docs/specs/SPEC-US-013-Notion-Context-Loader.md",
-    "docs/reports/AI-SDLC-002/REPORT-AI-SDLC-002-Validate-Gate-Integration.md",
     "docs/reports/AI-SDLC-002"
   ]
 }

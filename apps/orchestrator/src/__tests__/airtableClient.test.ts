@@ -127,4 +127,109 @@ describe("AirtableClient", () => {
       }
     );
   });
+
+  it("updates post status using the lowercase Airtable field name", async () => {
+    let capturedBody: unknown;
+
+    globalThis.fetch = async (url, options) => {
+      assert.equal(url, `https://api.airtable.com/v0/${baseId}/Posts/recPost123`);
+      assert.equal(options?.method, "PATCH");
+      const body = options?.body;
+      if (typeof body !== "string") {
+        throw new Error("Expected string request body");
+      }
+      capturedBody = JSON.parse(body);
+
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({})
+      } as Response;
+    };
+
+    await client.updateRecordStatus("ws-1", "recPost123", "Published");
+
+    assert.deepEqual(capturedBody, {
+      fields: {
+        status: "Published"
+      }
+    });
+  });
+
+  it("retries draft sync without select fields when Airtable lacks select options", async () => {
+    const capturedBodies: unknown[] = [];
+
+    globalThis.fetch = async (url, options) => {
+      assert.equal(url, `https://api.airtable.com/v0/${baseId}/Posts/recPost123`);
+      assert.equal(options?.method, "PATCH");
+      const body = options?.body;
+      if (typeof body !== "string") {
+        throw new Error("Expected string request body");
+      }
+      capturedBodies.push(JSON.parse(body));
+
+      if (capturedBodies.length === 1) {
+        return {
+          status: 422,
+          ok: false,
+          clone() {
+            return this;
+          },
+          json: async () => ({
+            error: {
+              type: "INVALID_MULTIPLE_CHOICE_OPTIONS",
+              message: "Insufficient permissions to create new select option"
+            }
+          })
+        } as unknown as Response;
+      }
+
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({})
+      } as Response;
+    };
+
+    await client.updateVariantDraft(
+      "recPost123",
+      "variant-1",
+      {
+        variant_draft: "Generated draft",
+        variant_hashtags: ["#one", "#two"],
+        variant_cta_url: "https://example.com",
+        ai_generation_status: "needs_review",
+        ai_review_notes: "Review before publishing"
+      },
+      {
+        variant_draft: "facebook_body",
+        variant_hashtags: "facebook_hashtags",
+        variant_cta_url: "facebook_cta_url",
+        ai_generation_status: "ai_generation_status",
+        ai_review_notes: "ai_review_notes",
+        ledger_variant_id: "ledger_variant_id"
+      }
+    );
+
+    assert.equal(capturedBodies.length, 2);
+    assert.deepEqual(capturedBodies[0], {
+      fields: {
+        facebook_body: "Generated draft",
+        facebook_hashtags: "#one #two",
+        ai_generation_status: "needs_review",
+        ledger_variant_id: "variant-1",
+        facebook_cta_url: "https://example.com",
+        ai_review_notes: "Review before publishing"
+      }
+    });
+    assert.deepEqual(capturedBodies[1], {
+      fields: {
+        facebook_body: "Generated draft",
+        facebook_hashtags: "#one #two",
+        ledger_variant_id: "variant-1",
+        facebook_cta_url: "https://example.com",
+        ai_review_notes: "Review before publishing"
+      }
+    });
+  });
 });

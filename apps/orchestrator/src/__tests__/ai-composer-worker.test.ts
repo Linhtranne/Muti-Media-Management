@@ -31,9 +31,10 @@ describe("AiComposerWorker Integration Scenarios", () => {
   // ──────────────────────────────────────────────
   // SCENARIO 1: Happy Path Generation Flow
   // ──────────────────────────────────────────────
-  it("SC-01 Happy Path: claims workflow, reloads Airtable, calls LLM, persists variant & outbox, and syncs Airtable", async () => {
+  it("SC-01 Happy Path: claims workflow, reloads Airtable, persists draft outbox, and holds for review", async () => {
     const sqlQueries: string[] = [];
     let airtableUpdated = false;
+    let airtableStatusUpdated: string | null = null;
     let rlsSet = false;
 
     const mockDb: Database = {
@@ -66,7 +67,9 @@ describe("AiComposerWorker Integration Scenarios", () => {
     };
 
     const mockAirtable: AirtableClient = {
-      async updateRecordStatus() {},
+      async updateRecordStatus(_workspaceId, _recordId, status) {
+        airtableStatusUpdated = status;
+      },
       async getPostRecord(recordId) {
         return AirtableReloadedRecordSchema.parse({
           id: recordId,
@@ -88,7 +91,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
       },
       async updateRecord() {}, async updateVariantDraft(recordId, variantId, fields, mapping) {
         airtableUpdated = true;
-        assert.equal(fields.ai_generation_status, "Needs Review");
+        assert.equal(fields.ai_generation_status, "needs_review");
         assert.equal(fields.variant_draft, "Preserving the master copy perfectly with innovation and secure systems!");
       }
     };
@@ -102,6 +105,7 @@ describe("AiComposerWorker Integration Scenarios", () => {
     assert.equal(result.success, true);
     assert.equal(result.status, "completed");
     assert.ok(airtableUpdated, "Airtable should be patched with AI draft");
+    assert.equal(airtableStatusUpdated, "Needs Review");
     assert.ok(rlsSet, "RLS context should be set at start of transaction");
     
     // Verify outbox was written

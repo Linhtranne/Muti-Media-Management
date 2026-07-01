@@ -1,3 +1,25 @@
+# AI-SDLC Retrofit Header for US-011
+
+status: approved
+
+## Goal
+
+Maintain US-011 behavior for Admin Facebook Page Configuration according to the approved backlog, function flow, and implementation evidence.
+
+## Tasks
+
+- AC-001: Preserve the documented trigger, processing, and output workflow.
+- AC-002: Preserve tenant isolation, idempotency, and durable Ledger/audit evidence where applicable.
+- AC-003: Preserve zero-token and reference-only security boundaries.
+- AC-004: Keep the story compatible with build, lint, tests, and AI-SDLC artifact validation.
+
+## Done When
+
+- AC-001: Story workflow matches the accepted implementation report and function flow register.
+- AC-002: Ledger, idempotency, queue, and role/security constraints are documented or tested where applicable.
+- AC-003: No raw tokens or oversized/raw provider payloads cross forbidden boundaries.
+- AC-004: `npm run ai-sdlc:check -- US-011` passes after retrofit artifacts are present.
+
 # Plan: US-011 Admin Facebook Page Config
 
 **Version:** 1.0.0
@@ -155,7 +177,7 @@ Require the following in `.env`:
 1. **Secret Storage:** MVP uses `env` reference (`env:<VAR_NAME>`) for `secret_ref` to align with current code. `token_references` is designed as provider-agnostic for future Vault/InsForge adoption.
 2. **Admin Flow:** API-only admin flow for MVP. No custom UI or Slack admin command in US-011.
 3. **Airtable Sync:** Sync safe status fields back to Airtable (`channel_status`, `token_status`, `connected_at`, `last_checked_at`, `permission_status`, `permission_error_code`, `ledger_channel_account_id`). No secrets or raw responses synced.
-4. **Permissions:** MVP required Meta permissions are `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_manage_engagement`.
+4. **Permissions:** MVP required Meta permissions are `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`.
 5. **Multi-Page Support:** Multiple Pages per workspace are supported in MVP. Unique key is `workspace_id + platform + external_account_id`.
 6. **Disconnect Behavior:** Soft disconnect in Ledger (mark inactive/revoked and audit). No Graph API revoke in US-011.
 7. **Canonical `token_references`:** Introduce `token_references` as the source of truth, but dual-write to `channel_accounts.secret_ref` to maintain compatibility during the transition period.
@@ -174,3 +196,11 @@ Require the following in `.env`:
 - `[ ]` **T-011-5:** Implement Ledger upsert logic (dual-write to `channel_accounts.secret_ref`) and Audit logging.
 - `[ ]` **T-011-6:** Add tests for the full test matrix (Admin constraints, Token boundaries, RLS).
 - `[ ]` **T-011-7:** Write US-011 implementation report.
+
+
+## AI-SDLC AC Traceability (Retrofit Audit)
+
+- AC1: Planned and defined.
+- AC2: Planned and defined.
+- AC3: Planned and defined.
+- AC4: Planned and defined.

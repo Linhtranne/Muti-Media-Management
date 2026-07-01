@@ -1,3 +1,33 @@
+# AI-SDLC Retrofit Header for US-013
+
+status: approved
+
+## Goal
+
+Load Notion campaign brief context safely for AI generation while preserving SSRF, token, size, and prompt-injection boundaries.
+
+## In Scope
+
+- AC1: Load approved Notion page context through the bounded Notion context loader.
+- AC2: Reject malformed or unsafe page identifiers before fetch.
+- AC3: Enforce timeout and response-size limits.
+- AC4: Return sanitized errors and avoid leaking token or raw response data.
+- AC5: Keep AI prompt context wrapped in defensive boundaries.
+
+## Out of Scope
+
+- Fetching full Notion block trees beyond the MVP context boundary.
+- Claiming production readiness without staging credentials and runtime smoke evidence.
+- Changing production business logic as part of this retrofit.
+
+## Acceptance Criteria
+
+- AC1: Valid Notion context can be loaded and transformed into AI-safe context.
+- AC2: Invalid page ids and unsafe origins are rejected before external fetch.
+- AC3: Timeout and max response size failures are handled deterministically.
+- AC4: Token resolution remains outside persisted logs, queues, Slack, Airtable, and Notion.
+- AC5: Prompt injection boundaries are preserved when context is passed to AI generation.
+
 # SPEC-US-013: Notion Campaign Brief Context Loader
 
 **Status:** Approved

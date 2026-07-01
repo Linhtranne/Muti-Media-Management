@@ -1,3 +1,25 @@
+# AI-SDLC Retrofit Header for US-015
+
+status: approved
+
+## Goal
+
+Maintain US-015 behavior for Unified Direct Message Inbox according to the approved backlog, function flow, and implementation evidence.
+
+## Tasks
+
+- AC-001: Preserve the documented trigger, processing, and output workflow.
+- AC-002: Preserve tenant isolation, idempotency, and durable Ledger/audit evidence where applicable.
+- AC-003: Preserve zero-token and reference-only security boundaries.
+- AC-004: Keep the story compatible with build, lint, tests, and AI-SDLC artifact validation.
+
+## Done When
+
+- AC-001: Story workflow matches the accepted implementation report and function flow register.
+- AC-002: Ledger, idempotency, queue, and role/security constraints are documented or tested where applicable.
+- AC-003: No raw tokens or oversized/raw provider payloads cross forbidden boundaries.
+- AC-004: `npm run ai-sdlc:check -- US-015` passes after retrofit artifacts are present.
+
 # Implementation Plan: US-015 - Unified Direct Message Inbox
 
 Cung cấp giải pháp Inbox tin nhắn trực tiếp hợp nhất (Unified DM Inbox) cho các nền tảng Messenger, Instagram, và Zalo, sử dụng RabbitMQ để xử lý bất đồng bộ, Postgres Ledger làm nguồn thông tin tin cậy (Source of Truth) và tích hợp Slack/Teams để theo dõi và phản hồi.
@@ -265,3 +287,11 @@ Khai báo các queue mới vào `QUEUE_TOPOLOGY` tại `apps/orchestrator/src/qu
 * [ ] DLQ ghi nhận audit `QUEUE_EVENT_DLQ` đầy đủ.
 * [ ] feature flag và SLA env variable được cấu hình đúng.
 * [ ] Luồng test coverage đảm bảo không bị regression ở comment sync.
+
+
+## AI-SDLC AC Traceability (Retrofit Audit)
+
+- AC1: Planned and defined.
+- AC2: Planned and defined.
+- AC3: Planned and defined.
+- AC4: Planned and defined.

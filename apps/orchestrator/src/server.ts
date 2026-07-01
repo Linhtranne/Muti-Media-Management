@@ -38,6 +38,7 @@ import { createFacebookCommentSyncRequestConsumer } from "./queue/facebookCommen
 import { createRabbitMqMonitor } from "./queue/rabbitmqMonitor.js";
 import { CommentSyncSchedulerRepository } from "./ledger/commentSyncSchedulerRepository.js";
 import { CommentSyncScheduler } from "./scheduler/commentSyncScheduler.js";
+import { AirtableStatusPoller } from "./scheduler/airtableStatusPoller.js";
 import { ChannelAccountAdminRepository } from "./ledger/channelAccountAdminRepository.js";
 import { DirectMessageRepository } from "./ledger/directMessageRepository.js";
 import { DirectMessageIngestWorker } from "./workers/directMessageIngestWorker.js";
@@ -57,6 +58,12 @@ export async function createServer() {
   const ingestor = new AirtableWebhookIngestor(database, queuePublisher, logger, env.WORKSPACE_ID);
 
   const airtableClient = createAirtableClient(env.AIRTABLE_API_KEY, env.AIRTABLE_BASE_ID);
+  const airtableStatusPoller = new AirtableStatusPoller(
+    airtableClient,
+    ingestor,
+    logger,
+    env.AIRTABLE_STATUS_POLLER_INTERVAL_MS
+  );
   const worker = new ApprovedPostWorker(database, airtableClient, logger, env.WORKSPACE_ID, queuePublisher);
   const consumer = await createRabbitMqConsumer(env.RABBITMQ_URL, worker, logger, database);
 
@@ -69,7 +76,8 @@ export async function createServer() {
     logger,
     env.WORKSPACE_ID,
     "fb_composer_v1.0.0",
-    env.AIRTABLE_FIELD_MAP
+    env.AIRTABLE_FIELD_MAP,
+    undefined
   );
   const aiComposerConsumer = await createAiComposerRabbitMqConsumer(env.RABBITMQ_URL, aiComposerWorker, logger);
   const policyWorker = new PolicyWorker(database, airtableClient, logger, env.WORKSPACE_ID, queuePublisher);
@@ -199,7 +207,7 @@ export async function createServer() {
     app, env, logger, database, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
     mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
     facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler, rabbitmqMonitor,
-    directMessageIngestConsumer, directMessageReplyConsumer
+    airtableStatusPoller, directMessageIngestConsumer, directMessageReplyConsumer
   };
 }
 
@@ -208,7 +216,7 @@ if (process.env.NODE_ENV !== "test") {
     app, env, logger, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
     mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
     facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler, rabbitmqMonitor,
-    directMessageIngestConsumer, directMessageReplyConsumer
+    airtableStatusPoller, directMessageIngestConsumer, directMessageReplyConsumer
   } = await createServer();
 
   await consumer.start().catch((err) => {
@@ -275,6 +283,12 @@ if (process.env.NODE_ENV !== "test") {
   } else {
     logger.info("CommentSyncScheduler disabled (COMMENT_SYNC_SCHEDULER_ENABLED != true)");
   }
+
+  if (env.AIRTABLE_STATUS_POLLER_ENABLED === "true") {
+    airtableStatusPoller.start();
+  } else {
+    logger.info("Airtable status poller disabled (AIRTABLE_STATUS_POLLER_ENABLED != true)");
+  }
   
   await rabbitmqMonitor.start(SCHEDULER_INTERVAL_MS).catch(err => {
     logger.error("Failed to start RabbitMQ monitor", { error: String(err) });
@@ -303,6 +317,7 @@ if (process.env.NODE_ENV !== "test") {
     await directMessageIngestConsumer.stop();
     await directMessageReplyConsumer.stop();
     commentSyncScheduler.stop();
+    airtableStatusPoller.stop();
     await rabbitmqMonitor.stop();
     if (schedulerInterval) {
       clearInterval(schedulerInterval);

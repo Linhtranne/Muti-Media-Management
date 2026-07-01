@@ -1,3 +1,25 @@
+# AI-SDLC Retrofit Header for US-010
+
+status: approved
+
+## Goal
+
+Maintain US-010 behavior for Operational Ledger and Audit Log Hardening according to the approved backlog, function flow, and implementation evidence.
+
+## Tasks
+
+- AC-001: Preserve the documented trigger, processing, and output workflow.
+- AC-002: Preserve tenant isolation, idempotency, and durable Ledger/audit evidence where applicable.
+- AC-003: Preserve zero-token and reference-only security boundaries.
+- AC-004: Keep the story compatible with build, lint, tests, and AI-SDLC artifact validation.
+
+## Done When
+
+- AC-001: Story workflow matches the accepted implementation report and function flow register.
+- AC-002: Ledger, idempotency, queue, and role/security constraints are documented or tested where applicable.
+- AC-003: No raw tokens or oversized/raw provider payloads cross forbidden boundaries.
+- AC-004: `npm run ai-sdlc:check -- US-010` passes after retrofit artifacts are present.
+
 # Plan: US-010 Operational Ledger and Audit Log
 
 **Version:** 1.2.0
@@ -203,3 +225,11 @@ To satisfy US-010's Admin/CMO reporting ACs, we will build backend SQL views/hel
 
 ## 13. Open Questions
 *(All Open Questions resolved as per review on 2026-06-02. Plan locked for Implementation.)*
+
+
+## AI-SDLC AC Traceability (Retrofit Audit)
+
+- AC1: Planned and defined.
+- AC2: Planned and defined.
+- AC3: Planned and defined.
+- AC4: Planned and defined.

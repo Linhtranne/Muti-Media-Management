@@ -106,7 +106,10 @@ export class PolicyWorkerRepository {
     const channelResult = await client.query<{ id: string; status: string; token_status: string }>(
       `SELECT id, status, token_status
        FROM channel_accounts
-       WHERE workspace_id = $1 AND platform = 'facebook'
+       WHERE workspace_id = $1
+         AND lower(platform) = 'facebook'
+         AND status = 'active'
+         AND token_status = 'valid'
        ORDER BY connected_at DESC
        LIMIT 1`,
       [workspaceId]

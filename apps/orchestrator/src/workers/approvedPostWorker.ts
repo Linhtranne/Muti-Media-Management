@@ -13,6 +13,7 @@ import {
 } from "../airtable/airtableClient.js";
 import type { Database } from "../ledger/postgres.js";
 import { WorkerRepository } from "../ledger/workerRepository.js";
+import { AiWorkerRepository } from "../ledger/aiWorkerRepository.js";
 import { ChannelAccountResolver } from "../services/channelAccountResolver.js";
 import type { Logger } from "../lib/logger.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
@@ -23,8 +24,11 @@ export interface WorkerResult {
   approvedVersion?: number;
 }
 
+const APPROVED_FOR_PUBLISH_STATUS = "Approved for Publish";
+
 export class ApprovedPostWorker {
   private readonly repository = new WorkerRepository();
+  private readonly aiRepository = new AiWorkerRepository();
   private readonly resolver: ChannelAccountResolver;
 
   constructor(
@@ -32,7 +36,7 @@ export class ApprovedPostWorker {
     private readonly airtableClient: AirtableClient,
     private readonly logger: Logger,
     private readonly workspaceId: string,
-    private readonly queuePublisher?: Pick<QueuePublisher, "publishAiComposerRequest">,
+    private readonly queuePublisher?: Pick<QueuePublisher, "publishAiComposerRequest"> & Partial<Pick<QueuePublisher, "publishPolicyEvaluateRequest">>,
     private readonly promptVersion = "fb_composer_v1.0.0"
   ) {
     this.resolver = new ChannelAccountResolver(this.logger);
@@ -64,6 +68,10 @@ export class ApprovedPostWorker {
     const { reloadedRecord, errorResult } = await this.handleAirtableReload(record_ref, webhookEventId, messageId, workspace_id, event_id);
     if (errorResult || !reloadedRecord) return errorResult!;
 
+    if (reloadedRecord.fields.status === APPROVED_FOR_PUBLISH_STATUS) {
+      return await this.publishApprovedDraft(record_ref, webhookEventId, messageId, workspace_id, event_id);
+    }
+
     const statusError = await this.verifyStatusAndValidity(reloadedRecord.fields, approval_ref, webhookEventId, messageId, workspace_id, event_id);
     if (statusError) return statusError;
 
@@ -71,6 +79,34 @@ export class ApprovedPostWorker {
     if (resolverError) return resolverError;
 
     return await this.allocateAndPublish(message, webhookEventId, messageId);
+  }
+
+  private async publishApprovedDraft(recordRef: string, webhookEventId: string, messageId: string, workspaceId: string, eventId: string): Promise<WorkerResult> {
+    if (!this.queuePublisher?.publishPolicyEvaluateRequest) {
+      return this.classifyAndAck(webhookEventId, "failed", messageId, workspaceId, eventId, "POLICY_PUBLISHER_MISSING", "Policy publisher is not configured");
+    }
+
+    const policyEvent = await this.database.transaction(workspaceId, async (client) => {
+      return this.aiRepository.findLatestQueuedPolicyHandoffForRecord(client, workspaceId, recordRef);
+    });
+
+    if (!policyEvent) {
+      return this.classifyAndAck(webhookEventId, "state_changed_ignored", messageId, workspaceId, eventId, "NO_DRAFT_READY", "No queued AI draft policy handoff found for Approved for Publish record");
+    }
+
+    await this.queuePublisher.publishPolicyEvaluateRequest(policyEvent, policyEvent.event_id);
+
+    await this.database.transaction(workspaceId, async (client) => {
+      await this.repository.markIgnored(client, webhookEventId, "workflow_stub_created", messageId, workspaceId, "APPROVED_FOR_PUBLISH", "Queued existing AI draft for policy evaluation");
+    });
+
+    this.logger.info("Approved draft queued for policy evaluation", {
+      event_id: eventId,
+      record_ref: recordRef,
+      policy_event_id: policyEvent.event_id
+    });
+
+    return { action: "ack", status: "workflow_stub_created" };
   }
 
   private async handleAirtableReload(recordRef: string, webhookEventId: string, messageId: string, workspaceId: string, eventId: string): Promise<{ reloadedRecord?: AirtableReloadedRecord, errorResult?: WorkerResult }> {

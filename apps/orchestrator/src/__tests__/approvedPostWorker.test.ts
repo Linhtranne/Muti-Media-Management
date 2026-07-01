@@ -168,6 +168,83 @@ describe("ApprovedPostWorker", () => {
     });
   });
 
+  it("TS-03 Approved for Publish: queues existing AI draft for policy evaluation without creating a new workflow", async () => {
+    const mockAirtable = createMockAirtableClient({
+      id: "recPost123",
+      fields: {
+        status: "Approved for Publish"
+      }
+    });
+
+    let policyMessage: any = null;
+    let workflowCreated = false;
+
+    const mockDb: Database = {
+      async transaction(wsId, fn) {
+        const client = {
+          query: async (text: string, values?: any[]) => {
+            if (text.includes("FROM webhook_events WHERE event_id =")) {
+              return { rows: [{ status: "received", is_finalized: false, id: "uuid-evt-123" }] };
+            }
+            if (text.includes("INSERT INTO workflow_runs")) {
+              workflowCreated = true;
+              return { rows: [] };
+            }
+            if (text.includes("FROM policy_handoff_events")) {
+              return {
+                rows: [{
+                  event_id: "evt_policy_123",
+                  workspace_id: workspaceId,
+                  correlation_id: "corr_policy_123",
+                  workflow_run_id: "wf_123",
+                  ai_generation_run_id: "ai_123",
+                  content_variant_id: "variant_123",
+                  airtable_record_id: "recPost123",
+                  platform: "facebook",
+                  prompt_version: "fb_composer_v1.0.0",
+                  approved_version: 1,
+                  idempotency_key: "ai.compose.facebook:ws_test_123:wf_123:fb_composer_v1.0.0",
+                  created_at: new Date("2026-06-30T00:00:00.000Z")
+                }]
+              };
+            }
+            if (text.includes("UPDATE webhook_events")) {
+              return { rows: [{ id: "uuid-evt-123" }] };
+            }
+            return { rows: [] };
+          }
+        } as any;
+        return fn(client);
+      },
+      async query() {
+        return { rows: [] } as any;
+      },
+      getPool() {
+        return {} as any;
+      }
+    };
+
+    const publisher = {
+      async publishAiComposerRequest() {
+        throw new Error("AI composer should not be queued again for Approved for Publish");
+      },
+      async publishPolicyEvaluateRequest(message: any) {
+        policyMessage = message;
+      }
+    };
+
+    const worker = new ApprovedPostWorker(mockDb, mockAirtable, logger, workspaceId, publisher);
+    const result = await worker.process(defaultMessage, "msg-id-123");
+
+    assert.deepEqual(result, {
+      action: "ack",
+      status: "workflow_stub_created"
+    });
+    assert.equal(workflowCreated, false);
+    assert.equal(policyMessage?.event_type, "policy.evaluate.requested");
+    assert.equal(policyMessage?.content_variant_id, "variant_123");
+  });
+
   it("TS-05 Stale Status: reloaded status is Draft, ignores and ACKs", async () => {
     const mockAirtable = createMockAirtableClient({
       id: "recPost123",
