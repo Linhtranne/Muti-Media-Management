@@ -3,6 +3,7 @@ export interface PromptContext {
   ctaUrl?: string | null;
   campaignObjective?: string | null;
   notionContext?: string | null;
+  lengthInstruction?: string | null;
 }
 
 export interface PromptTemplate {
@@ -13,6 +14,7 @@ export interface PromptTemplate {
 
 const DEFAULT_CAMPAIGN_OBJECTIVE = "General brand awareness";
 const EMPTY_NOTION_CONTEXT = "None provided";
+const DEFAULT_LENGTH_REQUIREMENT = "No explicit length requirement. Keep the post concise and appropriate for Facebook.";
 
 export const promptRegistry: Record<string, PromptTemplate> = {
   "fb_composer_v1.0.0": {
@@ -46,6 +48,10 @@ ${ctx.masterCopy}
 <cta_url>
 ${ctx.ctaUrl || "None provided"}
 </cta_url>
+
+<length_requirement>
+${ctx.lengthInstruction || DEFAULT_LENGTH_REQUIREMENT}
+</length_requirement>
 
 <notion_context>
 <campaign_objective>

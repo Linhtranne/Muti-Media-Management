@@ -11,6 +11,14 @@ export const AirtableChannelAccountStubSchema = z.object({
 
 export type AirtableChannelAccountStub = z.infer<typeof AirtableChannelAccountStubSchema>;
 
+export const AirtableAttachmentSchema = z.object({
+  url: z.string().url(),
+  filename: z.string().optional(),
+  type: z.string().optional()
+}).passthrough();
+
+export type AirtableAttachment = z.infer<typeof AirtableAttachmentSchema>;
+
 export const AirtablePostFieldsSchema = z.object({
   status: z.string().min(1).optional(),
   is_valid_for_approval: z.union([z.literal(0), z.literal(1)]).optional(),
@@ -23,7 +31,13 @@ export const AirtablePostFieldsSchema = z.object({
   post_id: z.string().optional().nullable(),
   campaign_id: z.array(z.string()).optional().nullable(),
   cta_url: z.string().optional().nullable(),
-  asset_links: z.union([z.string(), z.array(z.string())]).optional().nullable()
+  asset_links: z.union([z.string(), z.array(z.string()), z.array(AirtableAttachmentSchema)]).optional().nullable(),
+  desired_word_count: z.union([z.number(), z.string()]).optional().nullable(),
+  target_word_count: z.union([z.number(), z.string()]).optional().nullable(),
+  word_count: z.union([z.number(), z.string()]).optional().nullable(),
+  desired_character_count: z.union([z.number(), z.string()]).optional().nullable(),
+  target_character_count: z.union([z.number(), z.string()]).optional().nullable(),
+  character_count: z.union([z.number(), z.string()]).optional().nullable()
 });
 
 export type AirtablePostFields = z.infer<typeof AirtablePostFieldsSchema>;

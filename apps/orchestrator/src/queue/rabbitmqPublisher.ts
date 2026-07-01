@@ -2,6 +2,7 @@ import amqp from "amqplib";
 import type {
   AirtableApprovedQueueMessage,
   AiComposerQueueMessage,
+  PolicyEvaluateRequestedEvent,
   PublishFacebookExecuteEvent,
   PublishFacebookRequestedEvent,
   PublishFacebookValidatedEvent,
@@ -42,6 +43,7 @@ function currentUnixTimestampSeconds(): number {
 export interface QueuePublisher {
   publishApprovedPost(message: AirtableApprovedQueueMessage, messageId: string): Promise<void>;
   publishAiComposerRequest(message: AiComposerQueueMessage, messageId: string): Promise<void>;
+  publishPolicyEvaluateRequest(message: PolicyEvaluateRequestedEvent, messageId: string): Promise<void>;
   publishFacebookRequest(message: PublishFacebookRequestedEvent, messageId: string): Promise<void>;
   publishFacebookValidated(message: PublishFacebookValidatedEvent, messageId: string): Promise<void>;
   publishFacebookExecute(message: PublishFacebookExecuteEvent, messageId: string): Promise<void>;
@@ -70,6 +72,9 @@ export async function createRabbitMqPublisher(
   const aiExchange = "ai.workflows";
   const aiQueue = "ai.compose.facebook.requested";
   const aiRoutingKey = "ai.compose.facebook.requested";
+  const policyExchange = "policy.workflows";
+  const policyQueue = "policy.evaluate.requested";
+  const policyRoutingKey = "policy.evaluate.requested";
   const publishExchange = "publish.workflows";
   const publishQueue = "publish.facebook.requested";
   const publishRoutingKey = "publish.facebook.requested";
@@ -87,6 +92,9 @@ export async function createRabbitMqPublisher(
   await channel.assertExchange(aiExchange, "topic", { durable: true });
   await channel.assertQueue(aiQueue, { durable: true });
   await channel.bindQueue(aiQueue, aiExchange, aiRoutingKey);
+  await channel.assertExchange(policyExchange, "topic", { durable: true });
+  await channel.assertQueue(policyQueue, { durable: true });
+  await channel.bindQueue(policyQueue, policyExchange, policyRoutingKey);
   await channel.assertExchange(publishExchange, "topic", { durable: true });
   await channel.assertQueue(publishQueue, { durable: true });
   await channel.bindQueue(publishQueue, publishExchange, publishRoutingKey);
@@ -191,6 +199,26 @@ export async function createRabbitMqPublisher(
 
       await channel.waitForConfirms();
       await trackPublish(message, messageId, aiRoutingKey);
+    },
+
+    async publishPolicyEvaluateRequest(message: PolicyEvaluateRequestedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishPolicyEvaluateRequest");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(policyExchange, policyRoutingKey, body, {
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: currentUnixTimestampSeconds()
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, policyRoutingKey);
     },
 
     async publishFacebookRequest(message: PublishFacebookRequestedEvent, messageId: string): Promise<void> {

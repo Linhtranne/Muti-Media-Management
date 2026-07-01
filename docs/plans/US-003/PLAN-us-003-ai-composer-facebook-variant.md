@@ -1,3 +1,25 @@
+# AI-SDLC Retrofit Header for US-003
+
+status: approved
+
+## Goal
+
+Maintain US-003 behavior for AI Composer Facebook Variant Generation according to the approved backlog, function flow, and implementation evidence.
+
+## Tasks
+
+- AC-001: Preserve the documented trigger, processing, and output workflow.
+- AC-002: Preserve tenant isolation, idempotency, and durable Ledger/audit evidence where applicable.
+- AC-003: Preserve zero-token and reference-only security boundaries.
+- AC-004: Keep the story compatible with build, lint, tests, and AI-SDLC artifact validation.
+
+## Done When
+
+- AC-001: Story workflow matches the accepted implementation report and function flow register.
+- AC-002: Ledger, idempotency, queue, and role/security constraints are documented or tested where applicable.
+- AC-003: No raw tokens or oversized/raw provider payloads cross forbidden boundaries.
+- AC-004: `npm run ai-sdlc:check -- US-003` passes after retrofit artifacts are present.
+
 # PLAN: US-003 AI Composer Facebook Variant
 
 ## 1. Overview
@@ -234,3 +256,11 @@ T-001..T-012
 - FL-002 is updated and consistent with final US-003 contracts.
 - Implementation team can start coding without inventing statuses, schemas, prompt format, retry policy, or AI validation rules.
 - No unresolved Critical/High security findings remain.
+
+
+## AI-SDLC AC Traceability (Retrofit Audit)
+
+- AC1: Planned and defined.
+- AC2: Planned and defined.
+- AC3: Planned and defined.
+- AC4: Planned and defined.

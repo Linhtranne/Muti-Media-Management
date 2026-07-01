@@ -9,7 +9,11 @@ export const PublishPostInputSchema = z.object({
   content: z.object({
     body: z.string(),
     hashtags: z.array(z.string()).optional(),
-    link: z.string().url().optional()
+    link: z.string().url().optional(),
+    media: z.array(z.object({
+      type: z.enum(["image", "document", "link"]),
+      url: z.string().url()
+    }).strict()).optional()
   })
 }).strict();
 

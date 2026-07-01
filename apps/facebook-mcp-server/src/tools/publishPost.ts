@@ -35,6 +35,7 @@ const FACEBOOK_APP_THROTTLE_CODE = 341;
 
 export interface GraphClient {
   postFeed(pageId: string, accessToken: string, message: string, link?: string): Promise<GraphFeedPostResult>;
+  postPhoto(pageId: string, accessToken: string, caption: string, imageUrl: string): Promise<GraphFeedPostResult>;
 }
 
 export class DefaultGraphClient implements GraphClient {
@@ -60,6 +61,35 @@ export class DefaultGraphClient implements GraphClient {
 
     const data = await response.json() as GraphFeedPostResult & GraphErrorBody;
     
+    if (!response.ok) {
+      const errorObj = new Error(data.error?.message ?? 'Graph API Error') as GraphPublishError;
+      errorObj.code = data.error?.code;
+      errorObj.type = data.error?.type;
+      errorObj.status = response.status;
+      throw errorObj;
+    }
+
+    return data;
+  }
+
+  async postPhoto(pageId: string, accessToken: string, caption: string, imageUrl: string): Promise<GraphFeedPostResult> {
+    const url = new URL(`https://graph.facebook.com/v20.0/${pageId}/photos`);
+    const body: Record<string, string> = {
+      caption,
+      url: imageUrl,
+      access_token: accessToken
+    };
+
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json() as GraphFeedPostResult & GraphErrorBody;
+
     if (!response.ok) {
       const errorObj = new Error(data.error?.message ?? 'Graph API Error') as GraphPublishError;
       errorObj.code = data.error?.code;
@@ -107,14 +137,13 @@ export async function publishPostHandler(
   if (input.content.hashtags && input.content.hashtags.length > 0) {
     message += '\n\n' + input.content.hashtags.join(' ');
   }
+  const imageUrl = input.content.media?.find((item) => item.type === "image")?.url;
+  const link = input.content.link ?? input.content.media?.find((item) => item.type !== "image")?.url;
 
   try {
-    const data = await graphClient.postFeed(
-      input.channelAccountId,
-      accessToken,
-      message,
-      input.content.link
-    );
+    const data = imageUrl
+      ? await graphClient.postPhoto(input.channelAccountId, accessToken, message, imageUrl)
+      : await graphClient.postFeed(input.channelAccountId, accessToken, message, link);
 
     return {
       passed: true,

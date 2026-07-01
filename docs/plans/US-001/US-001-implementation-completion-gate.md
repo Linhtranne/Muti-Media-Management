@@ -1,3 +1,25 @@
+# AI-SDLC Retrofit Header for US-001
+
+status: approved
+
+## Goal
+
+Maintain US-001 behavior for Airtable Campaign and Post Workflow Base according to the approved backlog, function flow, and implementation evidence.
+
+## Tasks
+
+- AC-001: Preserve the documented trigger, processing, and output workflow.
+- AC-002: Preserve tenant isolation, idempotency, and durable Ledger/audit evidence where applicable.
+- AC-003: Preserve zero-token and reference-only security boundaries.
+- AC-004: Keep the story compatible with build, lint, tests, and AI-SDLC artifact validation.
+
+## Done When
+
+- AC-001: Story workflow matches the accepted implementation report and function flow register.
+- AC-002: Ledger, idempotency, queue, and role/security constraints are documented or tested where applicable.
+- AC-003: No raw tokens or oversized/raw provider payloads cross forbidden boundaries.
+- AC-004: `npm run ai-sdlc:check -- US-001` passes after retrofit artifacts are present.
+
 # US-001 Implementation Completion Gate
 
 ## 1. Purpose

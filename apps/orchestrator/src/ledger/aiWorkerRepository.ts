@@ -4,6 +4,7 @@ import {
   type AiGenerationStatus, 
   type AiErrorCode, 
   createAiIdempotencyKey,
+  type PolicyEvaluateRequestedEvent,
   type StructuredComposerOutput
 } from "@mediaops/shared-contracts";
 import { AuditLogRepository } from "./auditLogRepository.js";
@@ -26,6 +27,7 @@ export interface MarkAiCompletedInput {
   approvedVersion: number;
   promptVersion: string;
   output: StructuredComposerOutput;
+  assetLinks: Array<{ url: string; filename?: string; mimeType?: string }>;
   correlationId: string;
   postId: string;
   syncRetryNeeded?: boolean;
@@ -41,7 +43,111 @@ export interface MarkAiFailedInput {
   outputSnapshot?: { rawOutputHash: string; sanitizedFailure: true; errorCode: AiErrorCode };
 }
 
+export interface MarkAiCompletedResult {
+  variantId: string;
+  policyEvent: PolicyEvaluateRequestedEvent;
+}
+
+interface PolicyHandoffRow {
+  event_id: string;
+  workspace_id: string;
+  correlation_id: string;
+  workflow_run_id: string;
+  ai_generation_run_id: string;
+  content_variant_id: string;
+  airtable_record_id: string;
+  platform: "facebook";
+  prompt_version: string;
+  approved_version: number;
+  idempotency_key: string;
+  created_at: Date | string;
+}
+
+function toIsoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
 export class AiWorkerRepository {
+  async findQueuedPolicyHandoff(
+    client: pg.PoolClient,
+    workspaceId: string,
+    workflowRunId: string
+  ): Promise<PolicyEvaluateRequestedEvent | null> {
+    const result = await client.query<PolicyHandoffRow>(
+      `SELECT event_id, workspace_id, correlation_id, workflow_run_id, ai_generation_run_id,
+              content_variant_id, airtable_record_id, platform, prompt_version,
+              approved_version, idempotency_key, created_at
+       FROM policy_handoff_events
+       WHERE workspace_id = $1
+         AND workflow_run_id = $2
+         AND event_type = 'policy.evaluate.requested'
+         AND status = 'queued'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [workspaceId, workflowRunId]
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      event_id: row.event_id,
+      event_type: "policy.evaluate.requested",
+      event_version: 1,
+      workspace_id: row.workspace_id,
+      correlation_id: row.correlation_id,
+      workflow_run_id: row.workflow_run_id,
+      ai_generation_run_id: row.ai_generation_run_id,
+      content_variant_id: row.content_variant_id,
+      airtable_record_id: row.airtable_record_id,
+      platform: row.platform,
+      prompt_version: row.prompt_version,
+      approved_version: row.approved_version,
+      idempotency_key: row.idempotency_key,
+      created_at: toIsoString(row.created_at)
+    };
+  }
+
+  async findLatestQueuedPolicyHandoffForRecord(
+    client: pg.PoolClient,
+    workspaceId: string,
+    airtableRecordId: string
+  ): Promise<PolicyEvaluateRequestedEvent | null> {
+    const result = await client.query<PolicyHandoffRow>(
+      `SELECT event_id, workspace_id, correlation_id, workflow_run_id, ai_generation_run_id,
+              content_variant_id, airtable_record_id, platform, prompt_version,
+              approved_version, idempotency_key, created_at
+       FROM policy_handoff_events
+       WHERE workspace_id = $1
+         AND airtable_record_id = $2
+         AND event_type = 'policy.evaluate.requested'
+         AND status = 'queued'
+       ORDER BY approved_version DESC, created_at DESC
+       LIMIT 1`,
+      [workspaceId, airtableRecordId]
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      event_id: row.event_id,
+      event_type: "policy.evaluate.requested",
+      event_version: 1,
+      workspace_id: row.workspace_id,
+      correlation_id: row.correlation_id,
+      workflow_run_id: row.workflow_run_id,
+      ai_generation_run_id: row.ai_generation_run_id,
+      content_variant_id: row.content_variant_id,
+      airtable_record_id: row.airtable_record_id,
+      platform: row.platform,
+      prompt_version: row.prompt_version,
+      approved_version: row.approved_version,
+      idempotency_key: row.idempotency_key,
+      created_at: toIsoString(row.created_at)
+    };
+  }
+
   /**
    * Atomically claims a workflow_run by ID and transitions it to 'ai_generation_processing',
    * and creates/resumes the ai_generation_runs record with the prompt version idempotency key.
@@ -204,7 +310,7 @@ export class AiWorkerRepository {
   async markCompleted(
     client: pg.PoolClient,
     input: MarkAiCompletedInput
-  ): Promise<string> {
+  ): Promise<MarkAiCompletedResult> {
     const variantId = randomUUID();
     const syncRetryNeeded = input.syncRetryNeeded ?? false;
 
@@ -212,14 +318,15 @@ export class AiWorkerRepository {
     await client.query(
       `INSERT INTO content_variants (
         id, workspace_id, ai_generation_run_id, workflow_run_id, airtable_record_id, 
-        post_id, platform, body, hashtags, cta_url, approval_status, policy_status, sync_retry_needed, campaign_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, 'facebook', $7, $8::jsonb, $9, 'needs_review', 'pending_policy', $10, $11)
+        post_id, platform, body, hashtags, cta_url, asset_links, approval_status, policy_status, sync_retry_needed, campaign_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, 'facebook', $7, $8::jsonb, $9, $10::jsonb, 'needs_review', 'pending_policy', $11, $12)
        ON CONFLICT (workspace_id, workflow_run_id, platform)
        DO UPDATE SET 
          ai_generation_run_id = EXCLUDED.ai_generation_run_id,
          body = EXCLUDED.body,
          hashtags = EXCLUDED.hashtags,
          cta_url = EXCLUDED.cta_url,
+         asset_links = EXCLUDED.asset_links,
          sync_retry_needed = EXCLUDED.sync_retry_needed,
          campaign_id = COALESCE(EXCLUDED.campaign_id, content_variants.campaign_id),
          created_at = NOW()`,
@@ -233,6 +340,7 @@ export class AiWorkerRepository {
         input.output.body,
         JSON.stringify(input.output.hashtags),
         input.output.cta_url || null,
+        JSON.stringify(input.assetLinks),
         syncRetryNeeded,
         input.campaignId
       ]
@@ -261,6 +369,22 @@ export class AiWorkerRepository {
       workflowRunId: input.workflowRunId,
       promptVersion: input.promptVersion
     });
+    const policyEvent: PolicyEvaluateRequestedEvent = {
+      event_id: eventId,
+      event_type: "policy.evaluate.requested",
+      event_version: 1,
+      workspace_id: input.workspaceId,
+      correlation_id: input.correlationId,
+      workflow_run_id: input.workflowRunId,
+      ai_generation_run_id: input.aiGenerationRunId,
+      content_variant_id: variantId,
+      airtable_record_id: input.airtableRecordId,
+      platform: "facebook",
+      prompt_version: input.promptVersion,
+      approved_version: input.approvedVersion,
+      idempotency_key: idempotencyKey,
+      created_at: new Date().toISOString()
+    };
 
     await client.query(
       `INSERT INTO policy_handoff_events (
@@ -271,16 +395,16 @@ export class AiWorkerRepository {
        ON CONFLICT (idempotency_key) DO NOTHING`,
       [
         randomUUID(),
-        eventId,
-        input.workspaceId,
-        input.correlationId,
-        input.workflowRunId,
-        input.aiGenerationRunId,
-        variantId,
-        input.airtableRecordId,
-        input.promptVersion,
-        input.approvedVersion,
-        idempotencyKey,
+        policyEvent.event_id,
+        policyEvent.workspace_id,
+        policyEvent.correlation_id,
+        policyEvent.workflow_run_id,
+        policyEvent.ai_generation_run_id,
+        policyEvent.content_variant_id,
+        policyEvent.airtable_record_id,
+        policyEvent.prompt_version,
+        policyEvent.approved_version,
+        policyEvent.idempotency_key,
         JSON.stringify({ sync_retry_needed: syncRetryNeeded })
       ]
     );
@@ -296,7 +420,7 @@ export class AiWorkerRepository {
       actorId: 'ai_composer'
     });
 
-    return variantId;
+    return { variantId, policyEvent };
   }
 
   /**

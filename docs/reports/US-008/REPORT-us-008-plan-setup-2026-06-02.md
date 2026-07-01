@@ -1,9 +1,42 @@
+# AI-SDLC Source-of-Truth Header for US-008
+
+## AI-SDLC AC Traceability (Retrofit Audit)
+
+- AC1: Pass
+- AC2: Pass
+- AC3: Pass
+- AC4: Pass
+
+
+## AI-SDLC Completion Gate
+
+| Gate | Evidence | Verdict |
+|:---|:---|:---|
+| Spec approved | docs/specs/SPEC-US-008.md | Pass |
+| Plan approved | docs/plans/US-008/ | Pass |
+| Red test evidence | docs/testing/US-008/RED-US-008.md | Partial |
+| AC-001 trace | Spec, plan, RED, and report mention AC-001 | Pass |
+| AC-002 trace | Spec, plan, RED, and report mention AC-002 | Pass |
+| AC-003 trace | Spec, plan, RED, and report mention AC-003 | Pass |
+| AC-004 trace | Spec, plan, RED, and report mention AC-004 | Pass |
+| Build/lint/test evidence | `npm run ai-sdlc:validate -- US-008` passed with 442 tests, 107 suites, 0 failures | Pass |
+| Runtime smoke | Not run as part of documentation retrofit | Partial |
+
+Retrofit note: US-008 is a historical story that predates the current AI-SDLC gate. RED evidence is Partial because original implementation-time RED output was not captured. This section records compatibility with the new AI-SDLC gate; it does not claim complete historical TDD or production readiness.
+
+## Current Implementation Snapshot
+
+- AC-001: Pass - invalid commands and malformed arguments are covered by `slackCommandParser.test.ts` and `slackCommandsRoute.test.ts`.
+- AC-002: Pass - non-manager/admin rejection is covered by Slack route authorization tests and `workspace_members` role mapping.
+- AC-003: Pass - approve/reject Airtable updates are implemented in `SlackPostApprovalWorker` and covered by worker tests.
+- AC-004: Pass - command lifecycle persistence and audit behavior are implemented through `slack_command_events` and audit log paths.
+
 # Report: US-008 Slack Approve/Reject Post — Implementation Plan Creation
 
 **Date:** 2026-06-02  
 **Agent(s) Used:** Antigravity (Claude Sonnet 4.6 Thinking) + @backend-specialist  
 **Related User Story:** US-008 — Slack slash command duyệt/reject post  
-**Status:** Completed (Plan created; implementation not started)
+**Status:** Historical plan setup report; implementation now exists in codebase; retrofitted for AI-SDLC gate
 
 ---
 
@@ -11,7 +44,7 @@
 
 Created the full implementation plan `docs/plans/US-008/PLAN-us-008-slack-approve-reject-post.md` for the Slack slash command approve/reject post feature. The plan was derived by reading all required project docs, scanning the current codebase (orchestrator, shared contracts, migrations), and applying specialist knowledge from Spawner skills for Slack bot building and queue workers.
 
-No code was implemented. This report covers the plan-creation task only.
+This original report covered plan creation only. It has now been retrofitted with a current implementation snapshot and AI-SDLC gate evidence; production code was not changed by this retrofit.
 
 ---
 
@@ -94,8 +127,8 @@ The feature fits into Sprint 4 (Comment sync + Slack alerts/commands) of the arc
 - [x] Plan follows existing codebase patterns (consumer, worker, repository, redact)
 - [x] No secrets or tokens in plan content
 - [x] Open questions documented at Approval Gate
-- [ ] Tests passed — N/A (no implementation yet)
-- [ ] FL Register updated — deferred to implementation T-012
+- [x] Tests passed — `npm run ai-sdlc:validate -- US-008` passed with 442 tests, 107 suites, 0 failures during AI-SDLC retrofit
+- [x] FL Register updated — US-008 is documented as implemented in the Function Flow Logic Register; duplicate historical block was removed during retrofit cleanup
 
 ### Acceptance Criteria Coverage
 

@@ -15,7 +15,8 @@ describe("MCP Publish Contracts", () => {
       content: {
         body: "Hello world",
         hashtags: ["test", "facebook"],
-        link: "https://example.com"
+        link: "https://example.com",
+        media: [{ type: "image", url: "https://cdn.example.com/image.jpg" }]
       }
     };
     const result = PublishPostInputSchema.safeParse(valid);

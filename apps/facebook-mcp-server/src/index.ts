@@ -368,7 +368,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (!appId) throw new Error("Missing FACEBOOK_APP_ID");
 
       const scopes = (process.env.FACEBOOK_REQUIRED_SCOPES ??
-        "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement")
+        "pages_show_list,pages_read_engagement,pages_manage_posts")
         .split(",")
         .map((scope) => scope.trim())
         .filter(Boolean);

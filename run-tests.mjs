@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * run-tests.mjs
- * Simple test runner script that works on Windows/PowerShell by explicitly
- * listing test files and spawning node --test with the correct flags.
- * This avoids PowerShell glob expansion issues.
+ * Windows-stable test runner. It explicitly lists compiled test files and
+ * executes each file directly with Node instead of using the multi-file
+ * `node --test` harness, which can fail with spawn EPERM in nested validation
+ * flows on Windows.
  */
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,7 @@ const testFiles = [
   "apps/orchestrator/dist/__tests__/redact.test.js",
   "apps/orchestrator/dist/__tests__/auditLog.test.js",
   "apps/orchestrator/dist/__tests__/airtableClient.test.js",
+  "apps/orchestrator/dist/__tests__/airtableStatusPoller.test.js",
   "apps/orchestrator/dist/__tests__/channelAccountResolver.test.js",
   "apps/orchestrator/dist/__tests__/approvedPostWorker.test.js",
   "apps/orchestrator/dist/__tests__/notion-context-loader.test.js",
@@ -78,18 +80,23 @@ const testFiles = [
   "scripts/__tests__/ai-sdlc-quality.test.mjs",
   "scripts/__tests__/ai-sdlc-trace.test.mjs",
   "scripts/__tests__/pre-commit-gate.test.mjs",
-  "scripts/__tests__/runtime-smoke.test.mjs"
+  "scripts/__tests__/pre-push-gate.test.mjs",
+  "scripts/__tests__/story-detect.test.mjs",
+  "scripts/__tests__/runtime-smoke.test.mjs",
+  "scripts/__tests__/ci-story-detect.test.mjs"
 ];
 
 const absoluteFiles = testFiles.map((f) => path.resolve(__dirname, f));
 
-const result = spawnSync(
-  process.execPath,
-  ["--no-warnings", "--test", ...absoluteFiles],
-  {
+for (const file of absoluteFiles) {
+  const result = spawnSync(process.execPath, ["--no-warnings", file], {
     stdio: "inherit",
     cwd: __dirname
-  }
-);
+  });
 
-process.exit(result.status ?? 1);
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+console.log(`All ${absoluteFiles.length} test files passed.`);

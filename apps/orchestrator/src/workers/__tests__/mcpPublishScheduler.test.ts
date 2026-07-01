@@ -1,6 +1,7 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { McpPublishScheduler } from "../mcpPublishScheduler.js";
+import { McpPublishSchedulerRepository } from "../../ledger/mcpPublishSchedulerRepository.js";
 
 const mockDatabase = {
   transaction: mock.fn(async (workspaceId: string, callback: any) => {
@@ -82,5 +83,22 @@ describe("McpPublishScheduler", () => {
     await scheduler.runPollCycle();
     
     assert.equal(mockDatabase.transaction.mock.calls.length, 2);
+  });
+
+  it("resolves workflow run through content_variants instead of publish_jobs.workflow_run_id", async () => {
+    const repository = new McpPublishSchedulerRepository();
+    let capturedSql = "";
+    const client = {
+      query: mock.fn(async (sql: string) => {
+        capturedSql = sql;
+        return { rows: [] };
+      })
+    };
+
+    await repository.findDueJobs(client as any);
+
+    assert.match(capturedSql, /JOIN content_variants cv/i);
+    assert.match(capturedSql, /cv\.workflow_run_id/i);
+    assert.doesNotMatch(capturedSql, /pj\.workflow_run_id/i);
   });
 });

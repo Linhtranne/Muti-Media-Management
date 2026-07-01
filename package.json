@@ -15,6 +15,7 @@
     "lint": "npm run typecheck && npm run lint:eslint",
     "lint:eslint": "eslint .",
     "lint:eslint:fix": "eslint . --fix",
+    "dev:all": "node scripts/dev-all.mjs",
     "start:orchestrator": "node --env-file=.env.local apps/orchestrator/dist/server.js",
     "start:ngrok": "ngrok http 3000",
     "seed:slack-admin": "node seed-workspace-member.cjs",
@@ -24,6 +25,8 @@
     "ai-sdlc:check": "node scripts/ai-sdlc-check.mjs",
     "ai-sdlc:validate": "node scripts/ai-sdlc-validate.mjs",
     "ai-sdlc:smoke": "node scripts/runtime-smoke.mjs",
+    "story:detect": "node scripts/story-detect.mjs",
+    "story:validate": "node scripts/ai-sdlc-validate.mjs",
     "prepare": "node scripts/install-hooks.mjs"
   },
   "dependencies": {

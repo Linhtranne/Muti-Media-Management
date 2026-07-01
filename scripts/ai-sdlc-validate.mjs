@@ -18,19 +18,69 @@ export function parseStoryArgument(arguments_) {
 
 export function buildValidationCommands(storyId) {
   return [
-    { command: "npm", arguments_: ["run", "build"] },
-    { command: "npm", arguments_: ["run", "lint"] },
-    { command: "npm", arguments_: ["test"] },
-    { command: "npm", arguments_: ["run", "ai-sdlc:check", "--", storyId] }
+    {
+      command: "node",
+      arguments_: ["node_modules/typescript/bin/tsc", "-b"],
+      displayCommand: "npm run build"
+    },
+    {
+      command: "node",
+      arguments_: ["node_modules/typescript/bin/tsc", "-b", "--pretty", "false"],
+      displayCommand: "npm run typecheck"
+    },
+    {
+      command: "node",
+      arguments_: ["node_modules/eslint/bin/eslint.js", "."],
+      displayCommand: "npm run lint:eslint"
+    },
+    {
+      command: "node",
+      arguments_: ["run-tests.mjs"],
+      displayCommand: "npm test"
+    },
+    {
+      command: "node",
+      arguments_: ["scripts/ai-sdlc-check.mjs", storyId],
+      displayCommand: `npm run ai-sdlc:check -- ${storyId}`
+    }
   ];
 }
 
+export function resolveCommand(commandSpec, environment = process.env, platform = process.platform) {
+  if (commandSpec.command === "node") {
+    return {
+      command: process.execPath,
+      arguments_: commandSpec.arguments_
+    };
+  }
+
+  if (commandSpec.command === "npm" && environment.npm_execpath) {
+    return {
+      command: process.execPath,
+      arguments_: [environment.npm_execpath, ...commandSpec.arguments_]
+    };
+  }
+
+  if (platform === "win32" && commandSpec.command === "npm") {
+    return {
+      command: "npm.cmd",
+      arguments_: commandSpec.arguments_
+    };
+  }
+
+  return commandSpec;
+}
+
 function runShellCommand(commandSpec, cwd) {
-  const result = spawnSync(commandSpec.command, commandSpec.arguments_, {
+  const resolvedCommand = resolveCommand(commandSpec);
+  const result = spawnSync(resolvedCommand.command, resolvedCommand.arguments_, {
     cwd,
-    stdio: "inherit",
-    shell: true
+    stdio: "inherit"
   });
+
+  if (result.error) {
+    console.error(result.error.message);
+  }
 
   return result.status ?? 1;
 }
@@ -41,7 +91,7 @@ export function runValidation({
   runCommand = (commandSpec) => runShellCommand(commandSpec, workspaceRoot)
 }) {
   for (const commandSpec of buildValidationCommands(storyId)) {
-    const displayCommand = [commandSpec.command, ...commandSpec.arguments_].join(" ");
+    const displayCommand = commandSpec.displayCommand ?? [commandSpec.command, ...commandSpec.arguments_].join(" ");
     console.log(`AI-SDLC validate: ${displayCommand}`);
 
     const exitCode = runCommand(commandSpec);
