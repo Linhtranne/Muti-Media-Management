@@ -1,0 +1,11 @@
+Facebook MCP Server running on stdio
+(node:30896) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"level":"error","message":"Media optimization/upload failed","metadata":{"media_asset_id":"d972ad70-d761-43f2-aa6c-b230c3f0636a","code":"MEDIA_OPTIMIZATION_FAILED","error":"Image optimization failed: vipspng: libpng read error\nvips2png: unable to write to target target"},"timestamp":"2026-07-01T07:06:07.683Z"}

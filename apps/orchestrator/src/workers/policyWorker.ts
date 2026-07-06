@@ -1,5 +1,5 @@
-import { evaluateFacebookPolicy, POLICY_VERSION } from "@mediaops/policy-engine";
-import type { PolicyEvaluateRequestedEvent } from "@mediaops/shared-contracts";
+import { evaluateFacebookPolicy, evaluateTiktokPolicy, POLICY_VERSION } from "@mediaops/policy-engine";
+import type { PolicyEvaluateRequestedEvent, PublishFacebookRequestedEvent, PublishTiktokRequestedEvent } from "@mediaops/shared-contracts";
 import type { AirtableClient } from "../airtable/airtableClient.js";
 import type { Database } from "../ledger/postgres.js";
 import { PolicyWorkerRepository } from "../ledger/policyWorkerRepository.js";
@@ -21,7 +21,7 @@ export class PolicyWorker {
     private readonly airtableClient: AirtableClient,
     private readonly logger: Logger,
     private readonly workspaceId: string,
-    private readonly queuePublisher?: Pick<QueuePublisher, "publishFacebookRequest" | "publishSlackAlert">
+    private readonly queuePublisher?: Pick<QueuePublisher, "publishFacebookRequest" | "publishTiktokRequest" | "publishSlackAlert">
   ) {}
 
   async processQueueMessage(message: PolicyEvaluateRequestedEvent, messageId: string): Promise<PolicyQueueWorkerResult> {
@@ -55,7 +55,8 @@ export class PolicyWorker {
           return { status: "ineligible" as const };
         }
 
-        const evaluation = evaluateFacebookPolicy({
+        const evaluateFn = message.platform === "tiktok" ? evaluateTiktokPolicy : evaluateFacebookPolicy;
+        const evaluation = evaluateFn({
           variant: {
             approvalStatus: context.variant.approval_status,
             body: context.variant.body,
@@ -88,7 +89,13 @@ export class PolicyWorker {
     }
 
     if (persisted.publishEvent && this.queuePublisher) {
-      await this.queuePublisher.publishFacebookRequest(persisted.publishEvent, persisted.publishEvent.event_id);
+      if (message.platform === "tiktok") {
+        const tiktokEvent = persisted.publishEvent as PublishTiktokRequestedEvent;
+        await this.queuePublisher.publishTiktokRequest(tiktokEvent, tiktokEvent.event_id);
+      } else {
+        const facebookEvent = persisted.publishEvent as PublishFacebookRequestedEvent;
+        await this.queuePublisher.publishFacebookRequest(facebookEvent, facebookEvent.event_id);
+      }
     }
 
     if (persisted.allowed === false) {

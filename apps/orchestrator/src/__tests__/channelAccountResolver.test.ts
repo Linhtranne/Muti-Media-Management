@@ -51,7 +51,7 @@ describe("ChannelAccountResolver", () => {
       ]
     );
     assert.equal(result.outcome, "channel_account_missing");
-    assert.ok(result.reason.includes("No Facebook platform stubs found"));
+    assert.ok(result.reason.includes("No connected channel accounts found for targeted platforms"));
   });
 
   it("Case B: returns channel_account_inactive if stub status is not Connected", async () => {

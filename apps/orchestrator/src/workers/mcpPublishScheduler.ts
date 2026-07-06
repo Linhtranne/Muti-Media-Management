@@ -2,6 +2,7 @@ import { McpPublishSchedulerRepository } from "../ledger/mcpPublishSchedulerRepo
 import type { Database } from "../ledger/postgres.js";
 import type { Logger } from "../lib/logger.js";
 import type { QueuePublisher } from "../queue/rabbitmqPublisher.js";
+import type { PublishFacebookExecuteEvent, PublishTiktokExecuteEvent } from "@mediaops/shared-contracts";
 
 export class McpPublishScheduler {
   private readonly repository = new McpPublishSchedulerRepository();
@@ -10,7 +11,7 @@ export class McpPublishScheduler {
     private readonly database: Database,
     private readonly logger: Logger,
     private readonly workspaceId: string,
-    private readonly queuePublisher?: Pick<QueuePublisher, "publishFacebookExecute">
+    private readonly queuePublisher?: Pick<QueuePublisher, "publishFacebookExecute" | "publishTiktokExecute">
   ) {}
 
   async runPollCycle(): Promise<void> {
@@ -32,12 +33,23 @@ export class McpPublishScheduler {
           await this.database.transaction(job.workspace_id, async (client) => {
             const executeEvent = await this.repository.enqueueExecuteEvent(client, job);
             if (executeEvent && this.queuePublisher) {
-              await this.queuePublisher.publishFacebookExecute(executeEvent, executeEvent.eventId);
-              this.logger.info("Published execute event for job", {
-                jobId: job.id,
-                workspaceId: job.workspace_id,
-                eventId: executeEvent.eventId
-              });
+              if (job.platform === "tiktok") {
+                const tiktokEvent = executeEvent as PublishTiktokExecuteEvent;
+                await this.queuePublisher.publishTiktokExecute(tiktokEvent, tiktokEvent.event_id);
+                this.logger.info("Published execute event for job", {
+                  jobId: job.id,
+                  workspaceId: job.workspace_id,
+                  eventId: tiktokEvent.event_id
+                });
+              } else {
+                const facebookEvent = executeEvent as PublishFacebookExecuteEvent;
+                await this.queuePublisher.publishFacebookExecute(facebookEvent, facebookEvent.eventId);
+                this.logger.info("Published execute event for job", {
+                  jobId: job.id,
+                  workspaceId: job.workspace_id,
+                  eventId: facebookEvent.eventId
+                });
+              }
             }
           });
         } catch (error: unknown) {

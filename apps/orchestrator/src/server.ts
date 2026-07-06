@@ -14,10 +14,17 @@ import { createAiComposerRabbitMqConsumer } from "./queue/aiComposerRabbitmqCons
 import { PolicyWorker } from "./workers/policyWorker.js";
 import { createPolicyRabbitMqConsumer } from "./queue/policyRabbitmqConsumer.js";
 import { FacebookMcpClient } from "./mcp/facebookMcpClient.js";
+import { TiktokMcpClient } from "./mcp/tiktokMcpClient.js";
 import { McpValidateWorker } from "./workers/mcpValidateWorker.js";
+import { TiktokValidateWorker } from "./workers/tiktokValidateWorker.js";
 import { createMcpValidateRabbitMqConsumer } from "./queue/mcpValidateRabbitmqConsumer.js";
+import { createTiktokValidateRabbitMqConsumer, type TiktokValidateQueueConsumer } from "./queue/tiktokValidateRabbitmqConsumer.js";
 import { McpPublishWorker } from "./workers/mcpPublishWorker.js";
+import { TiktokPublishWorker } from "./workers/tiktokPublishWorker.js";
 import { createMcpPublishRabbitMqConsumer } from "./queue/mcpPublishRabbitmqConsumer.js";
+import { createTiktokPublishRabbitMqConsumer, type TiktokPublishQueueConsumer } from "./queue/tiktokPublishRabbitmqConsumer.js";
+import { TiktokStatusCheckWorker } from "./workers/tiktokStatusCheckWorker.js";
+import { createTiktokStatusCheckRabbitMqConsumer, type TiktokStatusCheckQueueConsumer } from "./queue/tiktokStatusCheckRabbitmqConsumer.js";
 import { McpPublishScheduler } from "./workers/mcpPublishScheduler.js";
 import { SlackSignatureVerifier } from "./services/slackSignatureVerifier.js";
 import { SlackCommandParser } from "./services/slackCommandParser.js";
@@ -45,6 +52,13 @@ import { DirectMessageIngestWorker } from "./workers/directMessageIngestWorker.j
 import { DirectMessageReplyWorker } from "./workers/directMessageReplyWorker.js";
 import { createDirectMessageIngestRabbitmqConsumer } from "./queue/directMessageIngestRabbitmqConsumer.js";
 import { createDirectMessageReplyRabbitmqConsumer } from "./queue/directMessageReplyRabbitmqConsumer.js";
+import { MediaRepository } from "./ledger/mediaRepository.js";
+import { AuditLogRepository } from "./ledger/auditLogRepository.js";
+import { R2StorageService } from "./services/r2Storage.js";
+import { MediaDownloader } from "./services/mediaDownloader.js";
+import { ImageOptimizer, VideoOptimizer } from "./services/mediaOptimizer.js";
+import { MediaAssetIngestWorker, MediaAssetOptimizeWorker } from "./workers/mediaPipelineWorker.js";
+import { createMediaPipelineRabbitmqConsumer, type MediaQueueConsumer } from "./queue/mediaPipelineRabbitmqConsumer.js";
 
 const SCHEDULER_INTERVAL_MS = 60_000;
 import path from "node:path";
@@ -64,7 +78,7 @@ export async function createServer() {
     logger,
     env.AIRTABLE_STATUS_POLLER_INTERVAL_MS
   );
-  const worker = new ApprovedPostWorker(database, airtableClient, logger, env.WORKSPACE_ID, queuePublisher);
+  const worker = new ApprovedPostWorker(database, airtableClient, logger, env.WORKSPACE_ID, queuePublisher, env.MEDIA_PIPELINE_ENABLED === "true");
   const consumer = await createRabbitMqConsumer(env.RABBITMQ_URL, worker, logger, database);
 
   // AI Composer integration
@@ -86,6 +100,7 @@ export async function createServer() {
   // MCP integration
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(currentDir, "../../facebook-mcp-server/dist/index.js");
+  const tiktokMcpServerPath = path.join(currentDir, "../../tiktok-mcp-server/dist/index.js");
 
   const facebookMcpClient = new FacebookMcpClient(mcpServerPath);
   await facebookMcpClient.connect().catch(err => {
@@ -97,6 +112,30 @@ export async function createServer() {
 
   const mcpPublishWorker = new McpPublishWorker(database, facebookMcpClient, airtableClient, logger, env.WORKSPACE_ID, queuePublisher);
   const mcpPublishConsumer = await createMcpPublishRabbitMqConsumer(env.RABBITMQ_URL, mcpPublishWorker, logger);
+
+  let tiktokMcpClient: TiktokMcpClient | null = null;
+  let tiktokValidateConsumer: TiktokValidateQueueConsumer | null = null;
+  let tiktokPublishConsumer: TiktokPublishQueueConsumer | null = null;
+  let tiktokStatusCheckConsumer: TiktokStatusCheckQueueConsumer | null = null;
+
+  if (env.TIKTOK_PUBLISHING_ENABLED === "true") {
+    logger.info("TikTok publishing enabled, connecting to TikTok MCP server and starting consumers...");
+    tiktokMcpClient = new TiktokMcpClient(tiktokMcpServerPath);
+    await tiktokMcpClient.connect().catch(err => {
+      logger.error("Failed to connect to TikTok MCP server", { error: String(err) });
+    });
+
+    const tiktokValidateWorker = new TiktokValidateWorker(database, tiktokMcpClient, logger, env.WORKSPACE_ID, queuePublisher, airtableClient);
+    tiktokValidateConsumer = await createTiktokValidateRabbitMqConsumer(env.RABBITMQ_URL, tiktokValidateWorker, logger);
+
+    const tiktokPublishWorker = new TiktokPublishWorker(database, tiktokMcpClient, airtableClient, logger, env.WORKSPACE_ID, queuePublisher);
+    tiktokPublishConsumer = await createTiktokPublishRabbitMqConsumer(env.RABBITMQ_URL, tiktokPublishWorker, logger);
+
+    const tiktokStatusCheckWorker = new TiktokStatusCheckWorker(database, tiktokMcpClient, logger, env.WORKSPACE_ID, queuePublisher);
+    tiktokStatusCheckConsumer = await createTiktokStatusCheckRabbitMqConsumer(env.RABBITMQ_URL, tiktokStatusCheckWorker, logger);
+  } else {
+    logger.info("TikTok publishing disabled");
+  }
 
   const mcpPublishScheduler = new McpPublishScheduler(database, logger, env.WORKSPACE_ID, queuePublisher);
 
@@ -162,6 +201,54 @@ export async function createServer() {
     env.WORKSPACE_ID
   );
 
+  // US-016: Media Ingestion & Optimization Pipeline
+  let mediaPipelineConsumer: MediaQueueConsumer | null = null;
+  if (env.MEDIA_PIPELINE_ENABLED === "true") {
+    const mediaRepository = new MediaRepository();
+    const auditLogRepository = new AuditLogRepository();
+    const r2Storage = new R2StorageService({
+      R2_BUCKET: env.R2_BUCKET!,
+      R2_ENDPOINT: env.R2_ENDPOINT!,
+      R2_PUBLIC_BASE_URL: env.R2_PUBLIC_BASE_URL!,
+      R2_ACCESS_KEY_ID: env.R2_ACCESS_KEY_ID!,
+      R2_SECRET_ACCESS_KEY: env.R2_SECRET_ACCESS_KEY!
+    });
+    const mediaDownloader = new MediaDownloader();
+    const imageOptimizer = new ImageOptimizer();
+    const videoOptimizer = new VideoOptimizer();
+
+    const ingestWorker = new MediaAssetIngestWorker(
+      database,
+      airtableClient,
+      mediaRepository,
+      auditLogRepository,
+      queuePublisher,
+      logger
+    );
+    const optimizeWorker = new MediaAssetOptimizeWorker(
+      database,
+      airtableClient,
+      mediaRepository,
+      auditLogRepository,
+      r2Storage,
+      mediaDownloader,
+      imageOptimizer,
+      videoOptimizer,
+      logger,
+      {
+        R2_BUCKET: env.R2_BUCKET!,
+        MEDIA_TEMP_DIR: env.MEDIA_TEMP_DIR
+      }
+    );
+
+    mediaPipelineConsumer = await createMediaPipelineRabbitmqConsumer(
+      env.RABBITMQ_URL,
+      ingestWorker,
+      optimizeWorker,
+      logger
+    );
+  }
+
   const app = express();
   app.disable("x-powered-by");
   
@@ -207,7 +294,8 @@ export async function createServer() {
     app, env, logger, database, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
     mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
     facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler, rabbitmqMonitor,
-    airtableStatusPoller, directMessageIngestConsumer, directMessageReplyConsumer
+    airtableStatusPoller, directMessageIngestConsumer, directMessageReplyConsumer, mediaPipelineConsumer,
+    tiktokValidateConsumer, tiktokPublishConsumer, tiktokStatusCheckConsumer, tiktokMcpClient
   };
 }
 
@@ -216,7 +304,8 @@ if (process.env.NODE_ENV !== "test") {
     app, env, logger, consumer, aiComposerWorker, aiComposerConsumer, policyConsumer, mcpValidateConsumer, facebookMcpClient,
     mcpPublishConsumer, mcpPublishScheduler, slackCommandConsumer, slackCommentActionConsumer,
     facebookCommentIngestConsumer, facebookCommentSyncRequestConsumer, commentSyncScheduler, rabbitmqMonitor,
-    airtableStatusPoller, directMessageIngestConsumer, directMessageReplyConsumer
+    airtableStatusPoller, directMessageIngestConsumer, directMessageReplyConsumer, mediaPipelineConsumer,
+    tiktokValidateConsumer, tiktokPublishConsumer, tiktokStatusCheckConsumer, tiktokMcpClient
   } = await createServer();
 
   await consumer.start().catch((err) => {
@@ -227,17 +316,35 @@ if (process.env.NODE_ENV !== "test") {
     logger.error("Failed to start AI Composer RabbitMQ consumer", { error: String(err) });
   });
 
-  await policyConsumer.start().catch((err) => {
+  await policyConsumer.start().catch((err: unknown) => {
     logger.error("Failed to start Policy RabbitMQ consumer", { error: String(err) });
   });
 
-  await mcpValidateConsumer.start().catch((err) => {
+  await mcpValidateConsumer.start().catch((err: unknown) => {
     logger.error("Failed to start MCP Validate RabbitMQ consumer", { error: String(err) });
   });
 
-  await mcpPublishConsumer.start().catch((err) => {
+  await mcpPublishConsumer.start().catch((err: unknown) => {
     logger.error("Failed to start MCP Publish RabbitMQ consumer", { error: String(err) });
   });
+
+  if (tiktokValidateConsumer) {
+    await tiktokValidateConsumer.start().catch((err: unknown) => {
+      logger.error("Failed to start TikTok Validate RabbitMQ consumer", { error: String(err) });
+    });
+  }
+
+  if (tiktokPublishConsumer) {
+    await tiktokPublishConsumer.start().catch((err: unknown) => {
+      logger.error("Failed to start TikTok Publish RabbitMQ consumer", { error: String(err) });
+    });
+  }
+
+  if (tiktokStatusCheckConsumer) {
+    await tiktokStatusCheckConsumer.start().catch((err: unknown) => {
+      logger.error("Failed to start TikTok Status Check RabbitMQ consumer", { error: String(err) });
+    });
+  }
 
   await slackCommandConsumer.start().catch((err) => {
     logger.error("Failed to start Slack Command RabbitMQ consumer", { error: String(err) });
@@ -265,6 +372,14 @@ if (process.env.NODE_ENV !== "test") {
     });
   } else {
     logger.info("DM Inbox consumers disabled (DM_INBOX_ENABLED != true)");
+  }
+
+  if (mediaPipelineConsumer) {
+    await mediaPipelineConsumer.start().catch((err: unknown) => {
+      logger.error("Failed to start Media Pipeline consumer", { error: String(err) });
+    });
+  } else {
+    logger.info("Media Pipeline consumer disabled (MEDIA_PIPELINE_ENABLED != true)");
   }
 
   // Start the scheduler loop
@@ -310,12 +425,18 @@ if (process.env.NODE_ENV !== "test") {
     await policyConsumer.stop();
     await mcpValidateConsumer.stop();
     await mcpPublishConsumer.stop();
+    if (tiktokValidateConsumer) await tiktokValidateConsumer.stop();
+    if (tiktokPublishConsumer) await tiktokPublishConsumer.stop();
+    if (tiktokStatusCheckConsumer) await tiktokStatusCheckConsumer.stop();
     await slackCommandConsumer.stop();
     await slackCommentActionConsumer.stop();
     await facebookCommentIngestConsumer.stop();
     await facebookCommentSyncRequestConsumer.stop();
     await directMessageIngestConsumer.stop();
     await directMessageReplyConsumer.stop();
+    if (mediaPipelineConsumer) {
+      await mediaPipelineConsumer.stop();
+    }
     commentSyncScheduler.stop();
     airtableStatusPoller.stop();
     await rabbitmqMonitor.stop();
@@ -323,6 +444,7 @@ if (process.env.NODE_ENV !== "test") {
       clearInterval(schedulerInterval);
     }
     await facebookMcpClient.disconnect();
+    if (tiktokMcpClient) await tiktokMcpClient.disconnect();
     aiComposerWorker.stop();
 
     logger.info("Shutdown complete.");

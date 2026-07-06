@@ -1,258 +1,147 @@
-# SPEC-US-017: TikTok Direct Posting MCP
+# SPEC-US-017: TikTok Publishing Pipeline
 
 status: approved
 
-**Related Epic:** Multi-Platform Publishing Expansion  
-**Depends On:** US-016 Shared Media Asset Storage and Optimization Pipeline  
-**Owner:** Backend / MCP / Platform Integrations  
+**Related Epic:** Multi-Platform Publishing Expansion
+**Related Stories:** US-016
+**Owner:** Backend / MCP / DevOps
 **Planning Date:** 2026-07-01
 
 ## Goal
-
-Add a TikTok MCP integration that can publish approved TikTok video and photo posts through TikTok Direct Post APIs while preserving per-channel publishing, token isolation, media references, and Ledger-backed auditability.
+Enable publishing approved content to TikTok from the same Airtable/AI/Policy/RabbitMQ pipeline, using media derivatives created by US-016. Ensure a production-oriented design with separate channel-based paths.
 
 ## Users / Roles
+- Content creator: selects TikTok as a target channel in Airtable.
+- Social media manager: approves the TikTok content variant.
+- Backend worker: validates, enqueues, and monitors TikTok publish jobs.
+- Admin / operator: configures TikTok Developer App credentials and manages OAuth tokens.
 
-- Content creator: enters campaign brief and uploads media in Airtable.
-- Social media manager: reviews `tiktok_caption`, hashtags, post type, and media readiness.
-- Admin: connects TikTok account through OAuth or manual staging seed fallback.
-- TikTok MCP server: owns all TikTok API calls and token resolution.
-- Orchestrator workers: create and process TikTok publish jobs without raw platform tokens.
+## Current Context
+- US-016 is complete and provides shared media assets in R2 (optimized video/photo).
+- The system supports a channel-based publishing model (Facebook currently exists).
+- Orchestrator owns the workflow, Ledger, RabbitMQ, policy engine, and audit log.
+- TikTok API interactions, OAuth, and status polling must live exclusively within the TikTok MCP Server.
 
 ## In Scope
-
-- Add TikTok as a target platform in the existing multi-platform publish pipeline.
-- Support TikTok Direct Post for both video and photo posts.
-- Generate and persist platform-specific AI output fields: `tiktok_caption`, `tiktok_hashtags`, and `tiktok_post_type`.
-- Support per-channel publish jobs so Facebook and TikTok can succeed or fail independently.
-- Use ready media derivatives from US-016 only.
-- Add TikTok OAuth production design with manual seed fallback for staging and demo.
-- Add TikTok MCP tools for creator info, publish init, upload or source URL handoff, and status polling.
-- Persist TikTok publish status, external post id, and sanitized platform response summaries.
+- TikTok publishing via the official TikTok Content Posting API.
+- Support for TikTok video posts.
+- Support for TikTok photo posts/carousels (if supported by current TikTok API).
+- Channel-specific media eligibility rules and validations.
+- TikTok MCP server with tools for OAuth, validation, execution, and status polling.
+- Orchestrator workers and schedulers to interact with TikTok MCP.
+- Polling mechanism to handle asynchronous TikTok publish statuses.
+- Audit logging, retry, and DLQ behavior specific to TikTok publish jobs.
 
 ## Out of Scope
+- Direct calling of TikTok API from the orchestrator.
+- Handling raw binary media, tokens, or signed URL secrets in RabbitMQ payloads.
+- Mixed generic platform publish logic (Facebook and TikTok are decoupled).
+- Automated AI video generation or editing beyond US-016 optimizations.
 
-- Building a TikTok user-facing admin UI beyond backend routes and scripts.
-- Publishing TikTok comments or direct messages.
-- TikTok analytics ingestion.
-- Instagram, Zalo, YouTube Shorts, or Threads publishing.
-- Bypassing TikTok app review, scope approval, or platform restrictions.
-- Reusing Facebook body as TikTok content without platform-specific generation.
-
-## Current Context and Constraints
-
-- Existing architecture isolates platform APIs inside MCP servers.
-- Existing Facebook publish pipeline uses `publish_jobs`, RabbitMQ, Postgres Ledger, and MCP tool calls.
-- US-016 will provide R2 media derivatives and media eligibility metadata.
-- TikTok Direct Post requires approved access and OAuth scopes. Runtime may be blocked by platform review even if code is correct.
-- TikTok creator restrictions must be queried before publishing.
-- A single TikTok post must not mix video and photo assets.
-
-## Data Model / Fields
-
-### Airtable Fields
-
-- `target_channels`: includes `TikTok`.
-- `tiktok_caption`: AI-generated and human-reviewable.
-- `tiktok_hashtags`: AI-generated and human-reviewable.
-- `tiktok_post_type`: `video` or `photo`; may be inferred if media is unambiguous.
-- `tiktok_publish_status`: `not_started`, `blocked`, `queued`, `publishing`, `published`, `failed`.
-- `tiktok_external_post_id`: sanitized external TikTok post id or share id when available.
-- `overall_publish_status`: `not_started`, `partially_published`, `published`, `failed`.
-
-### Ledger Changes
-
-- Extend `channel_accounts.provider` to include `tiktok` if not already supported.
-- Extend `publish_jobs.platform` or equivalent platform metadata to include `tiktok`.
-- Store TikTok publish attempts in existing `publish_jobs` where possible.
-- Add `tiktok_publish_events` only if existing publish event tables cannot represent TikTok safely.
-- Store `creator_info_snapshot` as sanitized JSON in Ledger or publish job metadata.
-
-## API / Contract
-
-### MCP Tools
-
-#### `generate_tiktok_oauth_url`
-
-Input:
-
-```json
-{
-  "workspaceId": "ws_staging",
-  "redirectUri": "https://example.com/api/v1/admin/tiktok/auth/callback",
-  "state": "opaque-state"
-}
-```
-
-Output:
-
-```json
-{
-  "authorizationUrl": "https://www.tiktok.com/v2/auth/authorize/..."
-}
-```
-
-#### `exchange_tiktok_code`
-
-Input: `workspaceId`, `code`, `redirectUri`, and `state`.  
-Output: opaque secret reference and sanitized TikTok account metadata.
-
-#### `query_tiktok_creator_info`
-
-Input: `channelAccountId` or account reference.  
-Output: sanitized creator constraints including privacy options and feature availability.
-
-#### `publish_tiktok_post`
-
-Input:
-
-```json
-{
-  "jobRef": { "jobId": "uuid" },
-  "channelAccountId": "tiktok-account-id",
-  "secretRef": "opaque-secret-ref",
-  "postType": "video",
-  "caption": "Approved TikTok caption",
-  "hashtags": ["mediaops"],
-  "media": [
-    {
-      "type": "video",
-      "url": "https://r2-public.example.com/workspaces/ws/posts/post/video.mp4",
-      "mimeType": "video/mp4"
-    }
-  ],
-  "privacyLevel": "SELF_ONLY"
-}
-```
-
-Output:
-
-```json
-{
-  "success": true,
-  "externalPostId": "tiktok-publish-id",
-  "status": "processing",
-  "platformResponseSummary": {
-    "provider": "tiktok",
-    "post_type": "video"
-  }
-}
-```
-
-### Queue
-
-- `publish.tiktok.requested`
-- `publish.tiktok.validated`
-- `publish.tiktok.execute`
-- `publish.tiktok.status_check`
-
-All payloads must be reference-only and must not contain raw token, raw platform response, binary media, or signed URL query secrets.
-
-## Happy Path
-
-1. User creates an Airtable record with `target_channels = Facebook, TikTok`.
-2. User uploads media assets and sets or allows inference of `tiktok_post_type`.
-3. AI Composer generates `facebook_body` and `tiktok_caption` separately.
-4. User reviews platform-specific fields.
-5. User sets `status = Approved for Publish`.
-6. Policy creates separate publish jobs for Facebook and TikTok.
-7. TikTok worker reloads TikTok job, channel account, creator info, and US-016 media derivatives.
-8. Worker calls TikTok MCP `query_tiktok_creator_info`.
-9. Worker calls TikTok MCP `publish_tiktok_post`.
-10. Ledger stores sanitized result and marks TikTok job `published` or `publishing`.
-11. Status checker confirms final post status when TikTok requires asynchronous processing.
-12. Airtable reflects per-channel status.
-
-## Error Cases
-
-- `TIKTOK_ACCOUNT_NOT_CONNECTED`: no active TikTok `channel_accounts` row.
-- `TIKTOK_TOKEN_INVALID`: token health check or publish fails auth.
-- `TIKTOK_SCOPE_MISSING`: app/token lacks required publish scope.
-- `TIKTOK_CREATOR_RESTRICTED`: creator info disallows requested post settings.
-- `TIKTOK_MEDIA_NOT_READY`: US-016 derivative missing or failed.
-- `TIKTOK_MIXED_MEDIA`: TikTok post contains both video and photo assets.
-- `TIKTOK_TOO_MANY_PHOTOS`: photo post exceeds 35 images.
-- `TIKTOK_PLATFORM_TRANSIENT`: API timeout or 5xx.
-- `TIKTOK_PLATFORM_REJECTED`: platform rejects content or privacy settings.
-
-## Edge Cases
-
-- Facebook succeeds but TikTok fails.
-- TikTok OAuth is not approved but manual seed fallback exists for staging.
-- TikTok post remains in processing state for longer than expected.
-- Creator privacy options do not include requested privacy level.
-- R2 URL is public but TikTok cannot pull it due DNS or content-type mismatch.
-- User changes Airtable media after media derivatives were generated.
-
-## Security and Permission Rules
-
-- Orchestrator never calls TikTok APIs directly.
-- Raw TikTok tokens are resolved only inside TikTok MCP server.
-- Manual seed fallback is staging/demo only and must be documented in reports.
-- No raw platform response in audit metadata.
-- No token, secret reference, or signed media URL query in RabbitMQ.
-- TikTok publish jobs are tenant-scoped by `workspace_id`.
-- Per-channel failure must not roll back successful Facebook jobs.
-
-## Platform Rules
-
-### TikTok Video
-
-- Post type: `video`.
-- Exactly one ready video derivative.
-- Output generated by US-016.
-- Max output size: 1 GB for MVP policy.
-
-### TikTok Photo
-
-- Post type: `photo`.
-- 1 to 35 ready image derivatives.
-- Max output size per image: 50 MB.
-- Images and videos cannot be mixed in a single TikTok post.
-
-## Acceptance Criteria
-
-**AC-001: TikTok can be selected with Facebook in the same record**  
-Given an Airtable record has `target_channels = Facebook, TikTok`  
-When the publish pipeline runs  
-Then separate publish jobs are created per channel  
-And each channel can succeed, fail, or block independently.
-
-**AC-002: TikTok publish uses MCP only**  
-Given a TikTok publish job is ready  
-When the worker executes the job  
-Then it calls TikTok MCP tools only  
-And orchestrator code does not call TikTok APIs directly.
-
-**AC-003: TikTok media rules are enforced**  
-Given a TikTok post contains mixed video and photo media  
-When policy evaluates TikTok eligibility  
-Then TikTok publish is blocked with `TIKTOK_MIXED_MEDIA`  
-And Facebook eligibility remains independent.
-
-**AC-004: TikTok OAuth production path and fallback are documented**  
-Given TikTok API approval is unavailable during staging  
-When admin setup runs  
-Then manual seed fallback can create a staging TikTok channel account  
-And the report records the platform approval blocker without claiming production-ready OAuth.
-
-**AC-005: TikTok Direct Post runtime status is tracked**  
-Given TikTok accepts a Direct Post request asynchronously  
-When status polling runs  
-Then Ledger and Airtable eventually show `published`, `failed`, or `publishing` with sanitized error details.
-
-## Test Plan
-
-- Contract tests for TikTok MCP tool input and output.
-- Boundary test proving no TikTok API calls outside `apps/tiktok-mcp-server`.
-- Policy tests for video, photo, mixed media, too many photos, missing media, and missing account.
-- Worker tests for publish success, transient retry, permanent failure, and status polling.
-- OAuth route tests for state, callback, and manual seed fallback.
-- Security tests for no raw token in queue, audit, Slack, Airtable, or report.
-- Runtime smoke: R2 media derivative to TikTok Direct Post to status check.
+## Assumptions
+- TikTok API permits automated publishing for registered developer apps.
+- Cloudflare R2 public URLs are accessible by TikTok's media ingestion servers.
+- TikTok requires asynchronous status checks after requesting a post.
+- TikTok MCP will handle credential resolution internally via a secret store.
 
 ## Open Questions
+- None. (All resolved: OQ-017-1 resolved to support photo carousels via Content Posting API; OQ-017-2 resolved to 1 min polling interval with 15 mins timeout; OQ-017-3 resolved to rely on polling for status check MVP).
 
-- OQ-017-1: TikTok app approval and Direct Post scope availability must be verified during implementation.
-- OQ-017-2: Default TikTok privacy level should be chosen after `query_creator_info` is available.
-- OQ-017-3: TikTok photo post support may depend on app approval and should be smoke-tested separately from video.
+## Data Model
+### Ledger Table Additions / Updates
+- `channel_account`: platform enum now supports `tiktok`.
+- `content_variants`: platform enum supports `tiktok`.
+- `publish_jobs`: platform enum supports `tiktok`, status enum needs to handle async states (`queued`, `mcp_validating`, `validated`, `publishing`, `pending_platform_status`, `published`, `failed`).
+- `publish_jobs`: add `tiktok_request_id` to track async TikTok API responses.
+
+## Airtable Fields / Inputs
+- `target_channels`: includes `TikTok`.
+- `tiktok_post_type`: single select (`video`, `photo`).
+
+## Shared Contracts
+- Event: `publish.tiktok.requested`
+- Event: `publish.tiktok.validated`
+- Event: `publish.tiktok.execute`
+- Event: `publish.tiktok.status_check`
+- Payloads must contain reference IDs only (`job_id`, `variant_id`, `channel_account_id`). No raw text/tokens.
+
+## RabbitMQ Events
+- `publish.tiktok.requested`: trigger for MCP validation.
+- `publish.tiktok.validated`: trigger for scheduling execution.
+- `publish.tiktok.execute`: trigger to call TikTok MCP publish.
+- `publish.tiktok.status_check`: delayed event/polling trigger to check async publish status.
+- DLQs for each queue.
+
+## TikTok MCP Tools
+- `get_tiktok_rate_limit_status`: returns current quota for TikTok API.
+- `validate_tiktok_post`: validates rules based on TikTok restrictions.
+- `publish_tiktok_post`: initiates publish via TikTok API, returns an initial request ID or status.
+- `get_tiktok_publish_status`: polls TikTok API using the request ID to check if publishing is completed.
+- `tiktok_auth_tools`: for generating OAuth URLs and exchanging tokens.
+
+## Orchestrator Flow
+1. **Policy Evaluation:** Policy engine approves TikTok variant -> enqueues `publish.tiktok.requested`.
+2. **Validation Worker:** Consumes event -> calls MCP `validate_tiktok_post` -> updates job to `validated` -> enqueues `publish.tiktok.validated`.
+3. **Execution Scheduler:** Scheduled job emits `publish.tiktok.execute`.
+4. **Publish Worker:** Consumes event -> calls MCP `publish_tiktok_post` -> updates job to `pending_platform_status` -> schedules a `publish.tiktok.status_check` event.
+5. **Status Check Worker:** Consumes event -> calls MCP `get_tiktok_publish_status`. If still processing, requeue status check with delay. If success, mark `published`. If failed, mark `failed` and alert Slack.
+
+## Policy / Validation Rules
+- TikTok media must come from R2 derivatives marked as `tiktok_video` or `tiktok_photo` generated in US-016.
+- Text length restrictions specific to TikTok.
+- Exactly one optimized video for a video post.
+- 1 to 35 optimized images for a photo post (pending OQ-017-1).
+- Missing TikTok OAuth token blocks publishing.
+
+## Media Eligibility Rules
+- Managed via `post_media_assets.platform_eligibility` set by US-016. TikTok publisher must check `eligibility->'tiktok' == 'eligible'`.
+
+## OAuth / Token Boundary
+- TikTok access/refresh tokens stored securely.
+- Orchestrator only holds a reference.
+- MCP Server resolves token internally before hitting TikTok API.
+
+## Error Handling
+- Transient errors (network, timeout): TTL retry and backoff in RabbitMQ.
+- Permanent errors (auth failure, validation): Fail closed, move to DLQ, alert via Slack.
+- TikTok API rejection: Mark job as `failed`, parse and record sanitized error in Ledger, send Slack alert.
+
+## Retry / DLQ Behavior
+- RabbitMQ handles retries using TTL queues.
+- `*.dlq` used for poison messages.
+- ACK only after Ledger commit or confirmed DLQ write.
+
+## Audit Logging
+- Audit events: `TIKTOK_VALIDATION_COMPLETED`, `TIKTOK_PUBLISH_STARTED`, `TIKTOK_PUBLISH_STATUS_PENDING`, `TIKTOK_PUBLISH_SUCCEEDED`, `TIKTOK_PUBLISH_FAILED`.
+- Scoped by `workspace_id`. No raw tokens or full HTTP responses in logs.
+
+## Security Rules
+- No TikTok API calls from orchestrator.
+- Token never exposed to Airtable, Slack, or RabbitMQ.
+- `workspace_id` scoping for all DB queries.
+
+## Acceptance Criteria
+- **AC-001:** TikTok publish job is decoupled from Facebook publish job.
+- **AC-002:** TikTok publish uses media derivatives from US-016.
+- **AC-003:** TikTok MCP tool `publish_tiktok_post` initiates the publish.
+- **AC-004:** Orchestrator polls TikTok MCP for async status until success or failure.
+- **AC-005:** No tokens or binary media in RabbitMQ payloads.
+- **AC-006:** Slack alert triggered on publish failure with sanitized reason.
+
+## Test Plan
+- Unit tests for TikTok policy rules.
+- Contract tests for TikTok MCP tools and RabbitMQ events.
+- Integration tests for Orchestrator TikTok Workers (validation, publish, status check).
+- Mock TikTok MCP server tests.
+
+## Runtime Smoke Plan
+- Connect a test TikTok account via OAuth.
+- Push an approved Airtable post targeted at TikTok.
+- Monitor logs for Validation -> Publish -> Status Check.
+- Verify video/photo appears on test TikTok account.
+
+## Production Readiness Checklist
+- [ ] TikTok App approved for Content Posting API.
+- [ ] Secure token store configured for TikTok MCP.
+- [ ] End-to-end smoke test passed with a real TikTok account.
+- [ ] **Staging / Production Credentials:** Resolve missing credentials to enable live API publish. (Status: Partial / Mock-ready).

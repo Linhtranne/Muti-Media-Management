@@ -4,6 +4,7 @@
     { "path": "packages/shared-contracts" },
     { "path": "packages/policy-engine" },
     { "path": "apps/orchestrator" },
-    { "path": "apps/facebook-mcp-server" }
+    { "path": "apps/facebook-mcp-server" },
+    { "path": "apps/tiktok-mcp-server" }
   ]
 }

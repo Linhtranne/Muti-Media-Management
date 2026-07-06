@@ -1,0 +1,13 @@
+Facebook MCP Server running on stdio
+(node:31580) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"level":"warn","message":"Airtable record not found, marking failed","metadata":{"event_id":"evt_manual_media_20260701141911","record_ref":"PASTE_RECORD_ID_MOI"},"timestamp":"2026-07-01T07:19:25.326Z"}
+{"level":"error","message":"Worker returned nack_dlq, routing to DLQ","metadata":{"messageId":"94fd0414-8ac6-4635-9355-95fd34679064","status":"failed"},"timestamp":"2026-07-01T07:19:25.328Z"}
+{"level":"warn","message":"Moving message to DLQ","metadata":{"messageId":"94fd0414-8ac6-4635-9355-95fd34679064","errorCode":"WORKER_NACK_DLQ_FAILED","errorMessage":"Worker requested DLQ: failed"},"timestamp":"2026-07-01T07:19:25.567Z"}

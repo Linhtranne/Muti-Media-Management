@@ -299,7 +299,8 @@ export default tseslint.config(
           "./packages/shared-contracts/tsconfig.json",
           "./packages/policy-engine/tsconfig.json",
           "./apps/orchestrator/tsconfig.json",
-          "./apps/facebook-mcp-server/tsconfig.json"
+          "./apps/facebook-mcp-server/tsconfig.json",
+          "./apps/tiktok-mcp-server/tsconfig.json"
         ],
         tsconfigRootDir: import.meta.dirname
       }

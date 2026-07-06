@@ -4,7 +4,7 @@ import { checkApprovalStatus } from "./rules/checkApprovalStatus.js";
 import { checkAutoPublishConfig } from "./rules/checkAutoPublishConfig.js";
 import { checkChannelAccountActive, checkChannelToken } from "./rules/checkChannel.js";
 import { checkCtaUrl, checkUtmPresence } from "./rules/checkCta.js";
-import { checkFacebookTextLength, checkHashtagCount } from "./rules/checkContent.js";
+import { checkFacebookTextLength, checkTiktokTextLength, checkHashtagCount } from "./rules/checkContent.js";
 import { checkForbiddenTerms } from "./rules/checkForbiddenTerms.js";
 
 export function aggregateRuleResults(checks: PolicyCheck[]): PolicyEvaluation {
@@ -39,6 +39,25 @@ export function evaluateFacebookPolicy(input: PolicyEvaluationInput): PolicyEval
     checkChannelAccountActive(input.channelAccount),
     checkChannelToken(input.tokenReference),
     checkFacebookTextLength(input.variant),
+    checkForbiddenTerms(input.variant, forbiddenTerms),
+    checkCtaUrl(input.variant),
+    checkUtmPresence(input.variant, { warnOnly: input.workspaceConfig.utmWarnOnly ?? true }),
+    checkHashtagCount(input.variant),
+    ...checkAutoPublishConfig(input.workspaceConfig)
+  ]);
+}
+
+export function evaluateTiktokPolicy(input: PolicyEvaluationInput): PolicyEvaluation {
+  const forbiddenTerms = [
+    ...DEFAULT_FORBIDDEN_TERMS,
+    ...(input.workspaceConfig.forbiddenTerms ?? [])
+  ];
+
+  return aggregateRuleResults([
+    checkApprovalStatus(input.variant),
+    checkChannelAccountActive(input.channelAccount),
+    checkChannelToken(input.tokenReference),
+    checkTiktokTextLength(input.variant),
     checkForbiddenTerms(input.variant, forbiddenTerms),
     checkCtaUrl(input.variant),
     checkUtmPresence(input.variant, { warnOnly: input.workspaceConfig.utmWarnOnly ?? true }),

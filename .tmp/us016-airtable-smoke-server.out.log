@@ -1,0 +1,19 @@
+{"level":"info","message":"Initializing RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:05:35.924Z"}
+{"level":"info","message":"RabbitMQ topology declared. Starting message ingestion...","metadata":{"queue":"airtable.webhook.approved"},"timestamp":"2026-07-01T07:05:37.620Z"}
+{"level":"info","message":"Initializing AI Composer RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:05:37.730Z"}
+{"level":"info","message":"Initializing Policy RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:05:39.402Z"}
+{"level":"info","message":"Initializing MCP Validate RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:05:41.094Z"}
+{"level":"info","message":"Initializing MCP Publish RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:05:42.832Z"}
+{"level":"info","message":"Started Slack command consumer for workspace ws_staging on queue slack.post_approval.requested","metadata":{},"timestamp":"2026-07-01T07:05:46.128Z"}
+{"level":"info","message":"Started Slack comment action consumer for workspace ws_staging on queue slack.comment_action.requested","metadata":{},"timestamp":"2026-07-01T07:05:47.762Z"}
+{"level":"info","message":"Initializing Facebook Comment Ingest RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:05:47.763Z"}
+{"level":"info","message":"Initializing Facebook Comment Sync Request RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:05:49.531Z"}
+{"level":"info","message":"DM Inbox consumers disabled (DM_INBOX_ENABLED != true)","metadata":{},"timestamp":"2026-07-01T07:05:51.442Z"}
+{"level":"info","message":"Initializing Media Ingestion & Optimization RabbitMQ consumers...","metadata":{},"timestamp":"2026-07-01T07:05:51.442Z"}
+{"level":"info","message":"Starting MCP Publish Scheduler...","metadata":{},"timestamp":"2026-07-01T07:05:53.366Z"}
+{"level":"info","message":"CommentSyncScheduler disabled (COMMENT_SYNC_SCHEDULER_ENABLED != true)","metadata":{},"timestamp":"2026-07-01T07:05:53.367Z"}
+{"level":"info","message":"Airtable status poller disabled (AIRTABLE_STATUS_POLLER_ENABLED != true)","metadata":{},"timestamp":"2026-07-01T07:05:53.368Z"}
+{"level":"info","message":"Started RabbitMQ Monitor (interval: 60000ms)","metadata":{},"timestamp":"2026-07-01T07:05:54.217Z"}
+{"level":"info","message":"Orchestrator listening","metadata":{"port":3016},"timestamp":"2026-07-01T07:05:54.221Z"}
+{"level":"info","message":"Media ingest requested","metadata":{"messageId":"61739664-9c6f-4c2c-b51a-7ae5da85d592","post_id":"recBwtD56dDWXN0ay","airtable_record_id":"recBwtD56dDWXN0ay"},"timestamp":"2026-07-01T07:05:59.582Z"}
+{"level":"info","message":"Media optimization requested","metadata":{"messageId":"fd5e8c47-a1b7-4e5a-b1f0-45d921e261bb","media_asset_id":"d972ad70-d761-43f2-aa6c-b230c3f0636a","post_id":"recBwtD56dDWXN0ay"},"timestamp":"2026-07-01T07:06:03.767Z"}

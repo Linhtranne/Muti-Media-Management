@@ -134,6 +134,95 @@ describe("ApprovedPostWorker", () => {
     assert.equal(Object.hasOwn(aiMessage, "cta_url"), false);
   });
 
+  it("queues media ingest when an Approved post includes media asset links", async () => {
+    const mockAirtable = createMockAirtableClient({
+      id: "recPost123",
+      fields: {
+        status: "Approved",
+        is_valid_for_approval: 1,
+        scheduled_at: "2030-06-01T12:00:00.000Z",
+        master_copy: "Valid content copy",
+        approved_at: "2026-05-27T08:00:00.000Z",
+        target_channels: ["Facebook"],
+        connected_channel_accounts: ["recAcc123"],
+        asset_links: "https://assets.example.com/post-image.png"
+      }
+    });
+
+    let aiMessage: any = null;
+    let mediaMessage: any = null;
+
+    const mockDb: Database = {
+      async transaction(wsId, fn) {
+        const client = {
+          query: async (text: string) => {
+            if (text.includes("FROM webhook_events WHERE event_id =")) {
+              return { rows: [{ status: "processing", is_finalized: false, id: "0d63fa8b-1277-4100-87c0-60a24d3e4d22" }] };
+            }
+            if (text.includes("UPDATE webhook_events")) {
+              return { rows: [{ id: "0d63fa8b-1277-4100-87c0-60a24d3e4d22" }] };
+            }
+            if (text.includes("FROM channel_accounts")) {
+              return {
+                rows: [
+                  {
+                    id: "c46382f4-c676-4e32-b12c-98ebf00fd756",
+                    platform: "Facebook",
+                    airtable_channel_account_record_id: "recAcc123",
+                    external_account_id: "ext-fb-456",
+                    display_name: "Active FB",
+                    status: "active",
+                    token_status: "valid"
+                  }
+                ]
+              };
+            }
+            if (text.includes("INSERT INTO approval_versions")) {
+              return { rows: [{ current_version: 1 }] };
+            }
+            if (text.includes("INSERT INTO workflow_runs")) {
+              return { rows: [{ id: "9e5f4ae2-bf8b-4e99-a375-d7e1c470f42a" }] };
+            }
+            if (text.includes("pg_advisory_xact_lock")) {
+              return { rows: [] };
+            }
+            return { rows: [] };
+          }
+        } as any;
+        return fn(client);
+      },
+      async query() {
+        return { rows: [] } as any;
+      },
+      getPool() {
+        return {} as any;
+      }
+    };
+
+    const publisher = {
+      async publishAiComposerRequest(message: any) {
+        aiMessage = message;
+      },
+      async publishMediaAssetIngestRequested(message: any) {
+        mediaMessage = message;
+      }
+    };
+
+    const worker = new ApprovedPostWorker(mockDb, mockAirtable, logger, workspaceId, publisher, true);
+    const result = await worker.process(defaultMessage, "msg-id-123");
+
+    assert.equal(result.status, "workflow_stub_created");
+    assert.equal(aiMessage?.event_type, "ai.compose.facebook.requested");
+    assert.equal(mediaMessage?.event_type, "media.asset.ingest.requested");
+    assert.equal(mediaMessage?.workspace_id, workspaceId);
+    assert.equal(mediaMessage?.post_id, "recPost123");
+    assert.equal(mediaMessage?.airtable_record_id, "recPost123");
+    assert.equal(mediaMessage?.content_variant_id, null);
+    assert.match(mediaMessage?.idempotency_key, /^media\.ingest:ws_test_123:recPost123:1$/);
+    assert.match(mediaMessage?.event_id, /^[0-9a-f-]{36}$/);
+    assert.match(mediaMessage?.correlation_id, /^[0-9a-f-]{36}$/);
+  });
+
   it("TS-02 Fast-Pass: event already finalized returns immediate ACK", async () => {
     const mockAirtable = createMockAirtableClient({});
     const mockDb: Database = {

@@ -1,7 +1,9 @@
 import dns from "node:dns/promises";
 import { URL } from "node:url";
 
+const IPV4_SEGMENT_COUNT = 4;
 const LOCALHOST_IPV4_FIRST_OCTET = 127;
+const PRIVATE_CLASS_A_FIRST_OCTET = 10;
 const PRIVATE_172_FIRST_OCTET = 172;
 const PRIVATE_172_SECOND_OCTET_MIN = 16;
 const PRIVATE_172_SECOND_OCTET_MAX = 31;
@@ -9,6 +11,12 @@ const PRIVATE_192_FIRST_OCTET = 192;
 const PRIVATE_192_SECOND_OCTET = 168;
 const LINK_LOCAL_FIRST_OCTET = 169;
 const LINK_LOCAL_SECOND_OCTET = 254;
+const UNSPECIFIED_IPV4_FIRST_OCTET = 0;
+const IPV4_MAPPED_IPV6_PREFIX = "::ffff:";
+const IPV6_LOOPBACK_ADDRESSES = new Set(["::1", "0:0:0:0:0:0:0:1"]);
+const IPV6_UNSPECIFIED_ADDRESSES = new Set(["::", "0:0:0:0:0:0:0:0"]);
+const IPV6_LINK_LOCAL_PREFIXES = ["fe80:", "fe90:", "fea0:", "feb0:"];
+const IPV6_UNIQUE_LOCAL_PREFIXES = ["fc", "fd"];
 const MOCK_NOTION_BRIEF = {
   briefSummary: "Mock campaign brief for testing Facebook Composer.",
   brandVoice: "Professional, engaging, modern",
@@ -16,6 +24,10 @@ const MOCK_NOTION_BRIEF = {
   avoidTerms: ["cheap", "guaranteed", "hack"],
   legalNotes: "Include standard terms and conditions."
 };
+
+function startsWithAny(value: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((prefix) => value.startsWith(prefix));
+}
 
 export class NotionSsrfError extends Error {
   readonly retryable = false;
@@ -34,34 +46,26 @@ export class NotionFetchError extends Error {
 }
 
 export function isPrivateOrLocalIp(ip: string): boolean {
-  if (ip === "::1" || ip === "0.0.0.0") return true;
+  const normalizedIp = ip.toLowerCase().trim();
 
-  // IPv4 check
-  const ipv4Match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
-  if (ipv4Match) {
-    const o1 = parseInt(ipv4Match[1], 10);
-    const o2 = parseInt(ipv4Match[2], 10);
+  if (IPV6_LOOPBACK_ADDRESSES.has(normalizedIp) || IPV6_UNSPECIFIED_ADDRESSES.has(normalizedIp)) return true;
 
-    // 127.0.0.0/8
+  const ipv4Parts = normalizedIp.split(".").map(Number);
+  const isIpv4Address = ipv4Parts.length === IPV4_SEGMENT_COUNT && ipv4Parts.every(Number.isInteger);
+  if (isIpv4Address) {
+    const [o1, o2] = ipv4Parts;
     if (o1 === LOCALHOST_IPV4_FIRST_OCTET) return true;
-    // 10.0.0.0/8
-    if (o1 === 10) return true;
-    // 172.16.0.0/12
+    if (o1 === PRIVATE_CLASS_A_FIRST_OCTET) return true;
     if (o1 === PRIVATE_172_FIRST_OCTET && o2 >= PRIVATE_172_SECOND_OCTET_MIN && o2 <= PRIVATE_172_SECOND_OCTET_MAX) return true;
-    // 192.168.0.0/16
     if (o1 === PRIVATE_192_FIRST_OCTET && o2 === PRIVATE_192_SECOND_OCTET) return true;
-    // 169.254.0.0/16
     if (o1 === LINK_LOCAL_FIRST_OCTET && o2 === LINK_LOCAL_SECOND_OCTET) return true;
-    // 0.0.0.0
-    if (o1 === 0) return true;
+    if (o1 === UNSPECIFIED_IPV4_FIRST_OCTET) return true;
   }
 
-  // IPv6 check
-  if (ip.includes(":")) {
-    const normalized = ip.toLowerCase();
-    if (normalized.startsWith("fe80:") || normalized.startsWith("fc00:") || normalized.startsWith("fd00:")) {
-      return true;
-    }
+  if (normalizedIp.includes(":")) {
+    if (normalizedIp.startsWith(IPV4_MAPPED_IPV6_PREFIX)) return true;
+    if (startsWithAny(normalizedIp, IPV6_LINK_LOCAL_PREFIXES)) return true;
+    if (startsWithAny(normalizedIp, IPV6_UNIQUE_LOCAL_PREFIXES)) return true;
   }
 
   return false;

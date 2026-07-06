@@ -2,8 +2,10 @@ import {
   type AirtableApprovedQueueMessage,
   type WebhookEventStatus,
   type AirtableReloadedRecord,
-  createAiIdempotencyKey
+  createAiIdempotencyKey,
+  type MediaAssetIngestRequestedEvent
 } from "@mediaops/shared-contracts";
+import { randomUUID } from "node:crypto";
 import type { AirtableClient } from "../airtable/airtableClient.js";
 import {
   AirtableRateLimitError,
@@ -36,7 +38,8 @@ export class ApprovedPostWorker {
     private readonly airtableClient: AirtableClient,
     private readonly logger: Logger,
     private readonly workspaceId: string,
-    private readonly queuePublisher?: Pick<QueuePublisher, "publishAiComposerRequest"> & Partial<Pick<QueuePublisher, "publishPolicyEvaluateRequest">>,
+    private readonly queuePublisher?: Pick<QueuePublisher, "publishAiComposerRequest"> & Partial<Pick<QueuePublisher, "publishPolicyEvaluateRequest" | "publishMediaAssetIngestRequested">>,
+    private readonly mediaPipelineEnabled = false,
     private readonly promptVersion = "fb_composer_v1.0.0"
   ) {
     this.resolver = new ChannelAccountResolver(this.logger);
@@ -78,7 +81,7 @@ export class ApprovedPostWorker {
     const resolverError = await this.resolveChannelAccountSafe(reloadedRecord.fields, webhookEventId, messageId, workspace_id, event_id);
     if (resolverError) return resolverError;
 
-    return await this.allocateAndPublish(message, webhookEventId, messageId);
+    return await this.allocateAndPublish(message, webhookEventId, messageId, hasMediaAssetLinks(reloadedRecord.fields.asset_links));
   }
 
   private async publishApprovedDraft(recordRef: string, webhookEventId: string, messageId: string, workspaceId: string, eventId: string): Promise<WorkerResult> {
@@ -202,7 +205,7 @@ export class ApprovedPostWorker {
     return null;
   }
 
-  private async allocateAndPublish(message: AirtableApprovedQueueMessage, webhookEventId: string, messageId: string): Promise<WorkerResult> {
+  private async allocateAndPublish(message: AirtableApprovedQueueMessage, webhookEventId: string, messageId: string, shouldIngestMedia: boolean): Promise<WorkerResult> {
     const { event_id: eventId, record_ref: recordRef, workspace_id: workspaceId } = message;
     const txB = await this.database.transaction(workspaceId, async (client) => {
       return this.repository.allocateVersionAndCreateWorkflow(client, {
@@ -238,6 +241,23 @@ export class ApprovedPostWorker {
       };
 
       await this.queuePublisher.publishAiComposerRequest(aiMessage, aiMessage.event_id);
+
+      if (this.mediaPipelineEnabled && shouldIngestMedia && this.queuePublisher.publishMediaAssetIngestRequested) {
+        const mediaEventId = randomUUID();
+        const mediaMessage: MediaAssetIngestRequestedEvent = {
+          event_id: mediaEventId,
+          event_type: "media.asset.ingest.requested",
+          event_version: 1,
+          workspace_id: workspaceId,
+          post_id: recordRef,
+          airtable_record_id: recordRef,
+          content_variant_id: null,
+          idempotency_key: `media.ingest:${workspaceId}:${recordRef}:${txB.approvedVersion}`,
+          correlation_id: mediaEventId
+        };
+
+        await this.queuePublisher.publishMediaAssetIngestRequested(mediaMessage, mediaMessage.event_id);
+      }
     }
 
     return { action: "ack", status: "workflow_stub_created", approvedVersion: txB.approvedVersion };
@@ -270,4 +290,16 @@ export class ApprovedPostWorker {
 
     return { action: "ack", status };
   }
+}
+
+function hasMediaAssetLinks(assetLinks: unknown): boolean {
+  if (typeof assetLinks === "string") {
+    return assetLinks.trim().length > 0;
+  }
+
+  if (Array.isArray(assetLinks)) {
+    return assetLinks.length > 0;
+  }
+
+  return false;
 }

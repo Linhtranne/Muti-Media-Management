@@ -9,7 +9,7 @@ export interface ResolverSuccess {
 
 export interface ResolvedAccount {
   channel_account_id: string;
-  platform: "Facebook";
+  platform: "Facebook" | "TikTok";
   airtable_channel_account_record_id: string;
   external_account_id: string;
   display_name: string;
@@ -32,49 +32,62 @@ export class ChannelAccountResolver {
     connectedAccountRecordIds: string[] | null | undefined,
     accountStubs: AirtableAccountStub[]
   ): Promise<ResolverResult> {
-    const hasFacebook = targetChannels?.includes("Facebook") ?? false;
+    const platformsToResolve = (targetChannels ?? []).filter(
+      (p) => p === "Facebook" || p === "TikTok"
+    );
 
-    if (!hasFacebook) {
+    if (platformsToResolve.length === 0) {
       return { outcome: "success", accounts: [] };
     }
 
-    // Case A: Target channels includes "Facebook" but no connected accounts
     if (!connectedAccountRecordIds || connectedAccountRecordIds.length === 0) {
-      this.logger.warn("Channel account missing: target includes Facebook but no connected accounts", {
-        workspace_id: workspaceId
+      this.logger.warn("Channel account missing: targets specified but no connected accounts", {
+        workspace_id: workspaceId,
+        platformsToResolve
       });
       return {
         outcome: "channel_account_missing",
-        reason: "Target channels includes Facebook but connected_channel_accounts is empty"
+        reason: "Target channels specified but connected_channel_accounts is empty"
       };
     }
 
-    // Check each stub for Airtable-level status
-    const facebookStubs = accountStubs.filter(s => s.platform === "Facebook");
-    if (facebookStubs.length === 0) {
+    // Filter stubs to only keep the targeted platform accounts (Facebook or TikTok)
+    const targetStubs = accountStubs.filter((stub) =>
+      platformsToResolve.includes(stub.platform as "Facebook" | "TikTok")
+    );
+
+    if (targetStubs.length === 0) {
+      this.logger.warn("Channel account missing: targets specified but no connected accounts matching targeted platforms", {
+        workspace_id: workspaceId,
+        platformsToResolve
+      });
       return {
         outcome: "channel_account_missing",
-        reason: "No Facebook platform stubs found in connected accounts"
+        reason: `No connected channel accounts found for targeted platforms [${platformsToResolve.join(", ")}]`
       };
     }
 
     // Case B: Check Airtable stub status
-    const inactiveStub = facebookStubs.find(s => s.status !== "Connected");
-    if (inactiveStub) {
-      this.logger.warn("Channel account inactive in Airtable", {
-        workspace_id: workspaceId,
-        stub_status: inactiveStub.status
-      });
-      return {
-        outcome: "channel_account_inactive",
-        reason: `Airtable account stub status is '${inactiveStub.status}' (not Connected)`
-      };
+    for (const stub of accountStubs) {
+      if (connectedAccountRecordIds.includes(stub.airtable_channel_account_record_id)) {
+        if (stub.status !== "Connected") {
+          this.logger.warn("Channel account inactive in Airtable", {
+            workspace_id: workspaceId,
+            stub_status: stub.status,
+            platform: stub.platform
+          });
+          return {
+            outcome: "channel_account_inactive",
+            reason: `Airtable account stub status is '${stub.status}' (not Connected) for ${stub.platform}`
+          };
+        }
+      }
     }
 
-    // Case C/D/E: Query Postgres for server-side metadata
     const resolved: ResolvedAccount[] = [];
 
-    for (const stub of facebookStubs) {
+    // Case C/D/E: Query Postgres for server-side metadata
+    for (const recId of connectedAccountRecordIds) {
       const result = await client.query<{
         id: string;
         platform: string;
@@ -89,20 +102,19 @@ export class ChannelAccountResolver {
          FROM channel_accounts
          WHERE workspace_id = $1
            AND airtable_channel_account_record_id = $2
-           AND platform = 'Facebook'
          LIMIT 1`,
-        [workspaceId, stub.airtable_channel_account_record_id]
+        [workspaceId, recId]
       );
 
       // Case C: No matching row in database
       if (result.rows.length === 0) {
         this.logger.error("Channel account unresolved: no server-side mapping found", {
           workspace_id: workspaceId,
-          airtable_record_id: stub.airtable_channel_account_record_id
+          airtable_record_id: recId
         });
         return {
           outcome: "channel_account_unresolved",
-          reason: `Airtable account stub ${stub.airtable_channel_account_record_id} cannot be resolved server-side`
+          reason: `Airtable account stub ${recId} cannot be resolved server-side`
         };
       }
 
@@ -113,22 +125,37 @@ export class ChannelAccountResolver {
         this.logger.warn("Channel account inactive server-side", {
           workspace_id: workspaceId,
           db_status: row.status,
-          token_status: row.token_status
+          token_status: row.token_status,
+          platform: row.platform
         });
         return {
           outcome: "channel_account_inactive",
-          reason: `Server-side account status='${row.status}', token_status='${row.token_status}'`
+          reason: `Server-side account status='${row.status}', token_status='${row.token_status}' for ${row.platform}`
         };
       }
 
       // Case E: Valid mapping
       resolved.push({
         channel_account_id: row.id,
-        platform: "Facebook",
+        platform: row.platform as "Facebook" | "TikTok",
         airtable_channel_account_record_id: row.airtable_channel_account_record_id,
         external_account_id: row.external_account_id,
         display_name: row.display_name
       });
+    }
+
+    // Verify all platforms in targetChannels are covered by the resolved active accounts
+    for (const platform of platformsToResolve) {
+      const covered = resolved.some((acc) => acc.platform === platform);
+      if (!covered) {
+        this.logger.warn(`Channel account missing for targeted platform: ${platform}`, {
+          workspace_id: workspaceId
+        });
+        return {
+          outcome: "channel_account_missing",
+          reason: `No connected channel account found for targeted platform ${platform}`
+        };
+      }
     }
 
     return { outcome: "success", accounts: resolved };

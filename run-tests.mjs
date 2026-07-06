@@ -42,8 +42,13 @@ const testFiles = [
   "apps/orchestrator/dist/__tests__/policyRabbitmqConsumer.test.js",
   "apps/orchestrator/dist/__tests__/policyWorker.test.js",
   "apps/orchestrator/dist/__tests__/securityGate.test.js",
+  "apps/orchestrator/dist/__tests__/r2Storage.test.js",
+  "apps/orchestrator/dist/__tests__/mediaDownloader.test.js",
+  "apps/orchestrator/dist/__tests__/mediaOptimizer.test.js",
+  "apps/orchestrator/dist/__tests__/mediaPipeline.test.js",
   "packages/shared-contracts/dist/__tests__/mcpPublishContracts.test.js",
   "apps/facebook-mcp-server/dist/__tests__/publishPost.test.js",
+  "apps/tiktok-mcp-server/dist/__tests__/tiktokPublishTools.test.js",
   "apps/orchestrator/dist/workers/__tests__/mcpPublishWorker.test.js",
   "apps/orchestrator/dist/workers/__tests__/mcpPublishScheduler.test.js",
   "apps/orchestrator/dist/queue/__tests__/mcpPublishRabbitmqConsumer.test.js",
@@ -59,6 +64,8 @@ const testFiles = [
   "packages/shared-contracts/dist/__tests__/mcp/facebookAuth.test.js",
   "apps/orchestrator/dist/__tests__/facebookAdminRoute.test.js",
   "packages/shared-contracts/dist/__tests__/reportsContracts.test.js",
+  "packages/shared-contracts/dist/__tests__/mediaContracts.test.js",
+  "packages/shared-contracts/dist/__tests__/tiktokContracts.test.js",
   "apps/orchestrator/dist/__tests__/reportRepository.test.js",
   "apps/orchestrator/dist/__tests__/directMessageRepository.test.js",
   "apps/orchestrator/dist/__tests__/reportsRoute.test.js",
@@ -68,6 +75,11 @@ const testFiles = [
   "apps/orchestrator/dist/workers/__tests__/directMessageReplyWorker.test.js",
   "apps/orchestrator/dist/queue/__tests__/directMessageIngestRabbitmqConsumer.test.js",
   "apps/orchestrator/dist/queue/__tests__/directMessageReplyRabbitmqConsumer.test.js",
+
+  // US-017: TikTok publish pipeline tests
+  "apps/orchestrator/dist/__tests__/tiktokValidateWorker.test.js",
+  "apps/orchestrator/dist/__tests__/tiktokPublishWorker.test.js",
+  "apps/orchestrator/dist/__tests__/tiktokStatusCheckWorker.test.js",
 
   // US-014 topology tests
   "apps/orchestrator/dist/queue/__tests__/topologyConfig.test.js",

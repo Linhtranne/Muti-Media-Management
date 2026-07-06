@@ -282,6 +282,80 @@ export const QUEUE_TOPOLOGY: QueueTopologyEntry[] = [
     prefetch: 1,
     workerBinding: "DirectMessageReplyWorker",
     ownerUs: "US-015"
+  },
+  // ─── US-016: Media Ingestion & Optimization ──────────────────────────────
+  {
+    exchange: "mediaops.events.topic",
+    exchangeType: "topic",
+    queue: "media.asset.ingest.requested",
+    routingKey: "media.asset.ingest.requested",
+    dlq: "media.asset.ingest.requested.dlq",
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
+    maxRetries: 5,
+    prefetch: 1,
+    workerBinding: "MediaAssetIngestWorker",
+    ownerUs: "US-016"
+  },
+  {
+    exchange: "mediaops.events.topic",
+    exchangeType: "topic",
+    queue: "media.asset.optimize.requested",
+    routingKey: "media.asset.optimize.requested",
+    dlq: "media.asset.optimize.requested.dlq",
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
+    maxRetries: 5,
+    prefetch: 1,
+    workerBinding: "MediaAssetOptimizeWorker",
+    ownerUs: "US-016"
+  },
+  // ─── US-017: TikTok Publishing ──────────────────────────────────────────
+  {
+    exchange: "publish.workflows",
+    exchangeType: "topic",
+    queue: "publish.tiktok.requested",
+    routingKey: "publish.tiktok.requested",
+    dlq: "publish.tiktok.requested.dlq",
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
+    maxRetries: 5,
+    prefetch: 1,
+    workerBinding: "TiktokValidateWorker",
+    ownerUs: "US-017"
+  },
+  {
+    exchange: "publish.workflows",
+    exchangeType: "topic",
+    queue: "publish.tiktok.validated",
+    routingKey: "publish.tiktok.validated",
+    dlq: "publish.tiktok.validated.dlq",
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
+    maxRetries: 5,
+    prefetch: 1,
+    workerBinding: "TiktokValidateWorker (output queue)",
+    ownerUs: "US-017"
+  },
+  {
+    exchange: "publish.workflows",
+    exchangeType: "topic",
+    queue: "publish.tiktok.execute",
+    routingKey: "publish.tiktok.execute",
+    dlq: "publish.tiktok.execute.dlq",
+    retryTtlMs: SLOW_RETRY_TTL_MS,
+    maxRetries: 5,
+    prefetch: 1,
+    workerBinding: "TiktokPublishWorker",
+    ownerUs: "US-017"
+  },
+  {
+    exchange: "publish.workflows",
+    exchangeType: "topic",
+    queue: "publish.tiktok.status_check",
+    routingKey: "publish.tiktok.status_check",
+    dlq: "publish.tiktok.status_check.dlq",
+    retryTtlMs: STANDARD_RETRY_TTL_MS,
+    maxRetries: 5,
+    prefetch: 1,
+    workerBinding: "TiktokStatusCheckWorker",
+    ownerUs: "US-017"
   }
 ];
 

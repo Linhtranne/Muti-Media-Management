@@ -261,7 +261,7 @@ describe("PolicyWorker", () => {
 
     const channelQuery = queries.find((query) => query.includes("FROM channel_accounts"));
     assert.ok(channelQuery);
-    assert.match(channelQuery, /lower\(platform\) = 'facebook'/);
+    assert.match(channelQuery, /lower\(platform\) = lower\(\$2\)/);
     assert.match(channelQuery, /status = 'active'/);
     assert.match(channelQuery, /token_status = 'valid'/);
   });

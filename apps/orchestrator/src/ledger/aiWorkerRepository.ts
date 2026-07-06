@@ -31,6 +31,7 @@ export interface MarkAiCompletedInput {
   correlationId: string;
   postId: string;
   syncRetryNeeded?: boolean;
+  targetChannels?: string[];
 }
 
 export interface MarkAiFailedInput {
@@ -311,40 +312,107 @@ export class AiWorkerRepository {
     client: pg.PoolClient,
     input: MarkAiCompletedInput
   ): Promise<MarkAiCompletedResult> {
-    const variantId = randomUUID();
     const syncRetryNeeded = input.syncRetryNeeded ?? false;
+    const targetPlatforms = (input.targetChannels ?? [])
+      .map((c) => c.toLowerCase())
+      .filter((p) => p === "facebook" || p === "tiktok");
+    const platformsToUse = targetPlatforms.length > 0 ? targetPlatforms : ["facebook"];
 
-    // 1. Insert/upsert variant (Facebook unique variant per workflow)
-    await client.query(
-      `INSERT INTO content_variants (
-        id, workspace_id, ai_generation_run_id, workflow_run_id, airtable_record_id, 
-        post_id, platform, body, hashtags, cta_url, asset_links, approval_status, policy_status, sync_retry_needed, campaign_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, 'facebook', $7, $8::jsonb, $9, $10::jsonb, 'needs_review', 'pending_policy', $11, $12)
-       ON CONFLICT (workspace_id, workflow_run_id, platform)
-       DO UPDATE SET 
-         ai_generation_run_id = EXCLUDED.ai_generation_run_id,
-         body = EXCLUDED.body,
-         hashtags = EXCLUDED.hashtags,
-         cta_url = EXCLUDED.cta_url,
-         asset_links = EXCLUDED.asset_links,
-         sync_retry_needed = EXCLUDED.sync_retry_needed,
-         campaign_id = COALESCE(EXCLUDED.campaign_id, content_variants.campaign_id),
-         created_at = NOW()`,
-      [
-        variantId,
-        input.workspaceId,
-        input.aiGenerationRunId,
-        input.workflowRunId,
-        input.airtableRecordId,
-        input.postId,
-        input.output.body,
-        JSON.stringify(input.output.hashtags),
-        input.output.cta_url || null,
-        JSON.stringify(input.assetLinks),
-        syncRetryNeeded,
-        input.campaignId
-      ]
-    );
+    let firstVariantId = "";
+    let firstPolicyEvent: PolicyEvaluateRequestedEvent | null = null;
+
+    for (const platform of platformsToUse) {
+      const variantId = randomUUID();
+      if (!firstVariantId) {
+        firstVariantId = variantId;
+      }
+
+      // 1. Insert/upsert variant (platform-specific variant per workflow)
+      await client.query(
+        `INSERT INTO content_variants (
+          id, workspace_id, ai_generation_run_id, workflow_run_id, airtable_record_id, 
+          post_id, platform, body, hashtags, cta_url, asset_links, approval_status, policy_status, sync_retry_needed, campaign_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb, 'needs_review', 'pending_policy', $12, $13)
+         ON CONFLICT (workspace_id, workflow_run_id, platform)
+         DO UPDATE SET 
+           ai_generation_run_id = EXCLUDED.ai_generation_run_id,
+           body = EXCLUDED.body,
+           hashtags = EXCLUDED.hashtags,
+           cta_url = EXCLUDED.cta_url,
+           asset_links = EXCLUDED.asset_links,
+           sync_retry_needed = EXCLUDED.sync_retry_needed,
+           campaign_id = COALESCE(EXCLUDED.campaign_id, content_variants.campaign_id),
+           created_at = NOW()`,
+        [
+          variantId,
+          input.workspaceId,
+          input.aiGenerationRunId,
+          input.workflowRunId,
+          input.airtableRecordId,
+          input.postId,
+          platform,
+          input.output.body,
+          JSON.stringify(input.output.hashtags),
+          input.output.cta_url || null,
+          JSON.stringify(input.assetLinks),
+          syncRetryNeeded,
+          input.campaignId
+        ]
+      );
+
+      // Create platform-specific policy handoff outbox event
+      const eventId = randomUUID();
+      const idempotencyKey = createAiIdempotencyKey({
+        workspaceId: input.workspaceId,
+        workflowRunId: input.workflowRunId,
+        promptVersion: `${input.promptVersion}:${platform}`
+      });
+
+      const policyEvent: PolicyEvaluateRequestedEvent = {
+        event_id: eventId,
+        event_type: "policy.evaluate.requested",
+        event_version: 1,
+        workspace_id: input.workspaceId,
+        correlation_id: input.correlationId,
+        workflow_run_id: input.workflowRunId,
+        ai_generation_run_id: input.aiGenerationRunId,
+        content_variant_id: variantId,
+        airtable_record_id: input.airtableRecordId,
+        platform: platform as "facebook" | "tiktok",
+        prompt_version: input.promptVersion,
+        approved_version: input.approvedVersion,
+        idempotency_key: idempotencyKey,
+        created_at: new Date().toISOString()
+      };
+
+      if (!firstPolicyEvent) {
+        firstPolicyEvent = policyEvent;
+      }
+
+      await client.query(
+        `INSERT INTO policy_handoff_events (
+          id, event_id, event_type, event_version, workspace_id, correlation_id, 
+          workflow_run_id, ai_generation_run_id, content_variant_id, airtable_record_id, 
+          platform, prompt_version, approved_version, idempotency_key, metadata, status
+         ) VALUES ($1, $2, 'policy.evaluate.requested', 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, 'queued')
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [
+          randomUUID(),
+          policyEvent.event_id,
+          policyEvent.workspace_id,
+          policyEvent.correlation_id,
+          policyEvent.workflow_run_id,
+          policyEvent.ai_generation_run_id,
+          policyEvent.content_variant_id,
+          policyEvent.airtable_record_id,
+          platform,
+          policyEvent.prompt_version,
+          policyEvent.approved_version,
+          policyEvent.idempotency_key,
+          JSON.stringify({ sync_retry_needed: syncRetryNeeded })
+        ]
+      );
+    }
 
     // 2. Transition ai_generation_runs
     await client.query(
@@ -362,53 +430,6 @@ export class AiWorkerRepository {
       [input.workflowRunId, input.workspaceId]
     );
 
-    // 4. Create Transactional Outbox Event
-    const eventId = randomUUID();
-    const idempotencyKey = createAiIdempotencyKey({
-      workspaceId: input.workspaceId,
-      workflowRunId: input.workflowRunId,
-      promptVersion: input.promptVersion
-    });
-    const policyEvent: PolicyEvaluateRequestedEvent = {
-      event_id: eventId,
-      event_type: "policy.evaluate.requested",
-      event_version: 1,
-      workspace_id: input.workspaceId,
-      correlation_id: input.correlationId,
-      workflow_run_id: input.workflowRunId,
-      ai_generation_run_id: input.aiGenerationRunId,
-      content_variant_id: variantId,
-      airtable_record_id: input.airtableRecordId,
-      platform: "facebook",
-      prompt_version: input.promptVersion,
-      approved_version: input.approvedVersion,
-      idempotency_key: idempotencyKey,
-      created_at: new Date().toISOString()
-    };
-
-    await client.query(
-      `INSERT INTO policy_handoff_events (
-        id, event_id, event_type, event_version, workspace_id, correlation_id, 
-        workflow_run_id, ai_generation_run_id, content_variant_id, airtable_record_id, 
-        platform, prompt_version, approved_version, idempotency_key, metadata, status
-       ) VALUES ($1, $2, 'policy.evaluate.requested', 1, $3, $4, $5, $6, $7, $8, 'facebook', $9, $10, $11, $12::jsonb, 'queued')
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [
-        randomUUID(),
-        policyEvent.event_id,
-        policyEvent.workspace_id,
-        policyEvent.correlation_id,
-        policyEvent.workflow_run_id,
-        policyEvent.ai_generation_run_id,
-        policyEvent.content_variant_id,
-        policyEvent.airtable_record_id,
-        policyEvent.prompt_version,
-        policyEvent.approved_version,
-        policyEvent.idempotency_key,
-        JSON.stringify({ sync_retry_needed: syncRetryNeeded })
-      ]
-    );
-
     // 5. Audit log
     const auditRepo = new AuditLogRepository();
     await auditRepo.insertAuditLog(client, {
@@ -420,7 +441,7 @@ export class AiWorkerRepository {
       actorId: 'ai_composer'
     });
 
-    return { variantId, policyEvent };
+    return { variantId: firstVariantId, policyEvent: firstPolicyEvent! };
   }
 
   /**

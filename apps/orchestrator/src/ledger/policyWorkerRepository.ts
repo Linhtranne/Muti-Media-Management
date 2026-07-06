@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import type { PolicyEvaluateRequestedEvent, PublishFacebookRequestedEvent } from "@mediaops/shared-contracts";
+import type { PolicyEvaluateRequestedEvent, PublishFacebookRequestedEvent, PublishTiktokRequestedEvent } from "@mediaops/shared-contracts";
 import { POLICY_VERSION, type PolicyEvaluation } from "@mediaops/policy-engine";
 import { AuditLogRepository } from "./auditLogRepository.js";
 
@@ -41,7 +41,7 @@ export interface PersistPolicyResult {
   status: "duplicate" | "ineligible" | "persisted";
   allowed?: boolean;
   resultId?: string;
-  publishEvent?: PublishFacebookRequestedEvent;
+  publishEvent?: PublishFacebookRequestedEvent | PublishTiktokRequestedEvent;
   blockers?: { code: string; detail: string }[];
   warnings?: { code: string; detail: string }[];
 }
@@ -107,12 +107,12 @@ export class PolicyWorkerRepository {
       `SELECT id, status, token_status
        FROM channel_accounts
        WHERE workspace_id = $1
-         AND lower(platform) = 'facebook'
+         AND lower(platform) = lower($2)
          AND status = 'active'
          AND token_status = 'valid'
        ORDER BY connected_at DESC
        LIMIT 1`,
-      [workspaceId]
+      [workspaceId, message.platform]
     );
 
     return {
@@ -224,8 +224,9 @@ export class PolicyWorkerRepository {
       };
     }
 
+    const platform = message.platform;
     const jobId = randomUUID();
-    const jobIdempotencyKey = `publish.facebook.job:${workspaceId}:${context.variant.post_id}:${context.workflow.approved_version}:${POLICY_VERSION}`;
+    const jobIdempotencyKey = `publish.${platform}.job:${workspaceId}:${context.variant.post_id}:${context.workflow.approved_version}:${POLICY_VERSION}`;
     const scheduledAt = new Date().toISOString();
 
     await client.query(
@@ -237,16 +238,19 @@ export class PolicyWorkerRepository {
     );
 
     const eventId = randomUUID();
-    const handoffIdempotencyKey = `publish.facebook.handoff:${workspaceId}:${jobId}`;
+    const handoffIdempotencyKey = `publish.${platform}.handoff:${workspaceId}:${jobId}`;
+    const eventType = `publish.${platform}.requested`;
+
     await client.query(
       `INSERT INTO publish_handoff_events (
         id, event_id, event_type, event_version, workspace_id, correlation_id, workflow_run_id,
         job_id, variant_id, channel_account_id, scheduled_at, idempotency_key, status
-       ) VALUES ($1, $2, 'publish.facebook.requested', 1, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+       ) VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
        ON CONFLICT (idempotency_key) DO NOTHING`,
       [
         randomUUID(),
         eventId,
+        eventType,
         workspaceId,
         message.correlation_id,
         context.workflow.id,
@@ -276,7 +280,7 @@ export class PolicyWorkerRepository {
       warnings: evaluation.warnings,
       publishEvent: {
         event_id: eventId,
-        event_type: "publish.facebook.requested",
+        event_type: eventType as "publish.tiktok.requested" | "publish.facebook.requested",
         event_version: 1,
         workspace_id: workspaceId,
         correlation_id: message.correlation_id,

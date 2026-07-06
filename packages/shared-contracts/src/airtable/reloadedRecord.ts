@@ -37,7 +37,11 @@ export const AirtablePostFieldsSchema = z.object({
   word_count: z.union([z.number(), z.string()]).optional().nullable(),
   desired_character_count: z.union([z.number(), z.string()]).optional().nullable(),
   target_character_count: z.union([z.number(), z.string()]).optional().nullable(),
-  character_count: z.union([z.number(), z.string()]).optional().nullable()
+  character_count: z.union([z.number(), z.string()]).optional().nullable(),
+  tiktok_post_type: z.string().optional().nullable(),
+  tiktok_privacy_level: z.string().optional().nullable(),
+  tiktok_brand_content_toggle: z.union([z.boolean(), z.string()]).optional().nullable(),
+  tiktok_brand_organic_toggle: z.union([z.boolean(), z.string()]).optional().nullable()
 });
 
 export type AirtablePostFields = z.infer<typeof AirtablePostFieldsSchema>;

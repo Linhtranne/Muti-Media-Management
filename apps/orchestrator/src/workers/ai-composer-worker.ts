@@ -283,9 +283,10 @@ export class AiComposerWorker {
     }
 
     const channels = fields.target_channels || [];
-    if (!channels.includes("Facebook")) {
-      this.logger.warn("Post target channels does not explicitly contain Facebook", { airtableRecordId, channels });
-      await this.markFailedInDb(workflowRunId, aiGenerationRunId, "AIRTABLE_CONTEXT_INVALID", "Target channels does not contain Facebook", "failed");
+    const hasValidChannel = channels.includes("Facebook") || channels.includes("TikTok");
+    if (!hasValidChannel) {
+      this.logger.warn("Post target channels does not explicitly contain Facebook or TikTok", { airtableRecordId, channels });
+      await this.markFailedInDb(workflowRunId, aiGenerationRunId, "AIRTABLE_CONTEXT_INVALID", "Target channels does not contain Facebook or TikTok", "failed");
       return { errorStatus: { success: false, status: "channels_invalid", errorCode: "AIRTABLE_CONTEXT_INVALID" } };
     }
 
@@ -452,7 +453,7 @@ export class AiComposerWorker {
   private async persistVariant(validatedOutput: ValidatedOutput, fields: AirtableFields, workflowRunId: string, aiGenerationRunId: string, airtableRecordId: string, approvedVersion: number, correlationId: string): Promise<MarkAiCompletedResult | { errorStatus: AiWorkerResult }> {
     try {
       const completed = await this.database.transaction(this.workspaceId, async (client) => {
-        return this.repository.markCompleted(client, { workspaceId: this.workspaceId, workflowRunId, aiGenerationRunId, airtableRecordId, campaignId: fields.campaign_id?.[0] || null, approvedVersion, promptVersion: this.promptVersion, output: validatedOutput, assetLinks: normalizeAssetLinks(fields.asset_links), correlationId, postId: fields.post_id || airtableRecordId, syncRetryNeeded: false });
+        return this.repository.markCompleted(client, { workspaceId: this.workspaceId, workflowRunId, aiGenerationRunId, airtableRecordId, campaignId: fields.campaign_id?.[0] || null, approvedVersion, promptVersion: this.promptVersion, output: validatedOutput, assetLinks: normalizeAssetLinks(fields.asset_links), correlationId, postId: fields.post_id || airtableRecordId, syncRetryNeeded: false, targetChannels: fields.target_channels || [] });
       });
       return completed;
     } catch (err) {

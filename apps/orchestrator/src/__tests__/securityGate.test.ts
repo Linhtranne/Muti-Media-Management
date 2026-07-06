@@ -57,7 +57,7 @@ describe("US-003 production security gate", () => {
   });
 
   it("blocks private, loopback, link-local, metadata, and IPv6 local resolved Notion IPs", async () => {
-    const blockedIps = ["10.0.0.1", "127.0.0.1", "169.254.169.254", "192.168.1.10", "172.20.1.1", "::1", "fe80::1", "fd00::1"];
+    const blockedIps = ["10.0.0.1", "127.0.0.1", "169.254.169.254", "192.168.1.10", "172.20.1.1", "::1", "fe80::1", "fd00::1", "::ffff:127.0.0.1"];
 
     for (const ip of blockedIps) {
       assert.equal(isPrivateOrLocalIp(ip), true, `${ip} should be considered private/local`);

@@ -2,6 +2,8 @@ export * from "./events/airtablePostApproved.js";
 export * from "./events/envelope.js";
 export * from "./events/facebookCommentSync.js";
 export * from "./events/directMessage.js";
+export * from "./events/mediaPipeline.js";
+export * from "./events/tiktokPublish.js";
 export * from "./ledger/webhookEventStatus.js";
 export * from "./ledger/workflowRunStatus.js";
 export * from "./ledger/channelAccountRef.js";
@@ -18,6 +20,7 @@ export * from "./mcp/publishPost.js";
 export * from "./mcp/publishFacebookExecute.js";
 export * from "./mcp/replyComment.js";
 export * from "./mcp/facebookAuth.js";
+export * from "./mcp/tiktok.js";
 
 // Slack Contracts
 export * from "./slack/slashCommand.js";

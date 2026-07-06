@@ -1,0 +1,40 @@
+{"level":"info","message":"Initializing RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:16:38.507Z"}
+{"level":"info","message":"RabbitMQ topology declared. Starting message ingestion...","metadata":{"queue":"airtable.webhook.approved"},"timestamp":"2026-07-01T07:16:40.228Z"}
+{"level":"info","message":"Initializing AI Composer RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:16:40.347Z"}
+{"level":"info","message":"Initializing Policy RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:16:42.164Z"}
+{"level":"info","message":"Initializing MCP Validate RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:16:44.190Z"}
+{"level":"info","message":"Initializing MCP Publish RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:16:45.971Z"}
+{"level":"info","message":"Started Slack command consumer for workspace ws_staging on queue slack.post_approval.requested","metadata":{},"timestamp":"2026-07-01T07:16:49.706Z"}
+{"level":"info","message":"Started Slack comment action consumer for workspace ws_staging on queue slack.comment_action.requested","metadata":{},"timestamp":"2026-07-01T07:16:51.679Z"}
+{"level":"info","message":"Initializing Facebook Comment Ingest RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:16:51.680Z"}
+{"level":"info","message":"Initializing Facebook Comment Sync Request RabbitMQ consumer...","metadata":{},"timestamp":"2026-07-01T07:16:53.476Z"}
+{"level":"info","message":"DM Inbox consumers disabled (DM_INBOX_ENABLED != true)","metadata":{},"timestamp":"2026-07-01T07:16:55.331Z"}
+{"level":"info","message":"Initializing Media Ingestion & Optimization RabbitMQ consumers...","metadata":{},"timestamp":"2026-07-01T07:16:55.332Z"}
+{"level":"info","message":"Starting MCP Publish Scheduler...","metadata":{},"timestamp":"2026-07-01T07:16:57.922Z"}
+{"level":"info","message":"CommentSyncScheduler disabled (COMMENT_SYNC_SCHEDULER_ENABLED != true)","metadata":{},"timestamp":"2026-07-01T07:16:57.922Z"}
+{"level":"info","message":"Airtable status poller disabled (AIRTABLE_STATUS_POLLER_ENABLED != true)","metadata":{},"timestamp":"2026-07-01T07:16:57.922Z"}
+{"level":"info","message":"Started RabbitMQ Monitor (interval: 60000ms)","metadata":{},"timestamp":"2026-07-01T07:16:58.839Z"}
+{"level":"info","message":"Orchestrator listening","metadata":{"port":3000},"timestamp":"2026-07-01T07:16:58.843Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:18:01.177Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":2,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:18:10.348Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:19:01.659Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":2,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:19:12.308Z"}
+{"level":"info","message":"Airtable webhook queued","metadata":{"event_id":"evt_manual_media_20260701141911","message_id":"94fd0414-8ac6-4635-9355-95fd34679064","record_ref":"PASTE_RECORD_ID_MOI"},"timestamp":"2026-07-01T07:19:16.223Z"}
+{"level":"info","message":"Worker processing message","metadata":{"event_id":"evt_manual_media_20260701141911","record_ref":"PASTE_RECORD_ID_MOI","message_id":"94fd0414-8ac6-4635-9355-95fd34679064"},"timestamp":"2026-07-01T07:19:18.143Z"}
+{"level":"info","message":"Message safely enqueued to DLQ and acknowledged from main queue","metadata":{"messageId":"94fd0414-8ac6-4635-9355-95fd34679064"},"timestamp":"2026-07-01T07:19:26.354Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:20:03.143Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:20:18.176Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:21:00.474Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:21:09.229Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:22:01.760Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:22:13.678Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:23:01.729Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:23:17.196Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:24:00.686Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:24:09.806Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:25:02.109Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:25:10.653Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:26:00.998Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:26:09.440Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"alerts.slack.send","messageCount":10,"consumerCount":0,"type":"active"},"timestamp":"2026-07-01T07:27:00.908Z"}
+{"level":"info","message":"RabbitMQ Queue Metrics","metadata":{"queue":"airtable.webhook.approved.dlq","messageCount":3,"consumerCount":0,"type":"dlq"},"timestamp":"2026-07-01T07:27:11.055Z"}

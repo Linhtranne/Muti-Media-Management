@@ -3,6 +3,8 @@ import { z } from "zod";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_AIRTABLE_STATUS_POLLER_INTERVAL_MS = 30_000;
+const DEFAULT_MEDIA_DOWNLOAD_TIMEOUT_MS = 60_000;
+const DEFAULT_MEDIA_OPTIMIZATION_TIMEOUT_MS = 300_000;
 
 const AirtableFieldMapSchema = z.object({
   variant_draft: z.string().default("facebook_body"),
@@ -22,7 +24,7 @@ const AirtableFieldMapSchema = z.object({
 
 const DEFAULT_AIRTABLE_FIELD_MAP = AirtableFieldMapSchema.parse({});
 
-const EnvSchema = z.object({
+export const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(DEFAULT_HTTP_PORT),
   WORKSPACE_ID: z.string().min(1),
@@ -47,6 +49,7 @@ const EnvSchema = z.object({
   AIRTABLE_STATUS_POLLER_ENABLED: z.enum(["true", "false"]).default("false"),
   AIRTABLE_STATUS_POLLER_INTERVAL_MS: z.coerce.number().int().positive().default(DEFAULT_AIRTABLE_STATUS_POLLER_INTERVAL_MS),
   US006_EXECUTION_ENABLED: z.enum(["true", "false"]).default("false"),
+  TIKTOK_PUBLISHING_ENABLED: z.enum(["true", "false"]).default("false"),
   DM_INBOX_ENABLED: z.enum(["true", "false"]).default("false"),
   DM_SLA_HOURS: z.coerce.number().int().positive().default(2),
   SLACK_SIGNING_SECRET: z.string().optional(),
@@ -69,6 +72,16 @@ const EnvSchema = z.object({
       return DEFAULT_AIRTABLE_FIELD_MAP;
     }
   }),
+  MEDIA_PIPELINE_ENABLED: z.enum(["true", "false"]).default("false"),
+  R2_BUCKET: z.string().optional(),
+  R2_ENDPOINT: z.string().url().optional(),
+  R2_PUBLIC_BASE_URL: z.string().url().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  MEDIA_TEMP_DIR: z.string().default(".tmp/media"),
+  MEDIA_MAX_CONCURRENT_JOBS: z.coerce.number().int().positive().default(2),
+  MEDIA_DOWNLOAD_TIMEOUT_MS: z.coerce.number().int().positive().default(DEFAULT_MEDIA_DOWNLOAD_TIMEOUT_MS),
+  MEDIA_OPTIMIZATION_TIMEOUT_MS: z.coerce.number().int().positive().default(DEFAULT_MEDIA_OPTIMIZATION_TIMEOUT_MS),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info")
 }).refine(data => data.SLACK_COMMANDS_ENABLED !== "true" || !!data.SLACK_SIGNING_SECRET, {
   message: "SLACK_SIGNING_SECRET is required when SLACK_COMMANDS_ENABLED is true",
@@ -76,6 +89,15 @@ const EnvSchema = z.object({
 }).refine(data => data.FACEBOOK_PAGE_CONFIG_ENABLED !== "true" || (!!data.FACEBOOK_APP_ID && !!data.FACEBOOK_APP_SECRET && !!data.FACEBOOK_REDIRECT_URI), {
   message: "FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, and FACEBOOK_REDIRECT_URI are required when FACEBOOK_PAGE_CONFIG_ENABLED is true",
   path: ["FACEBOOK_PAGE_CONFIG_ENABLED"]
+}).refine(data => data.MEDIA_PIPELINE_ENABLED !== "true" || (
+  !!data.R2_BUCKET &&
+  !!data.R2_ENDPOINT &&
+  !!data.R2_PUBLIC_BASE_URL &&
+  !!data.R2_ACCESS_KEY_ID &&
+  !!data.R2_SECRET_ACCESS_KEY
+), {
+  message: "R2_BUCKET, R2_ENDPOINT, R2_PUBLIC_BASE_URL, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY are required when MEDIA_PIPELINE_ENABLED is true",
+  path: ["MEDIA_PIPELINE_ENABLED"]
 });
 
 export type Env = z.infer<typeof EnvSchema>;

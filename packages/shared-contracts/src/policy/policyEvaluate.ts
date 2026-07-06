@@ -27,7 +27,7 @@ export const PolicyEvaluateRequestedEventSchema = z
     ai_generation_run_id: z.string().uuid(),
     content_variant_id: z.string().uuid(),
     airtable_record_id: z.string().min(1),
-    platform: z.literal("facebook"),
+    platform: z.enum(["facebook", "tiktok"]),
     prompt_version: z.string().min(1),
     approved_version: z.number().int().positive(),
     idempotency_key: z.string().min(1),

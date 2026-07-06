@@ -51,3 +51,4 @@ These failures prove TikTok is not yet integrated as a real MCP-backed publishin
 - AC-003: RED test case planned and must fail before implementation.
 - AC-004: RED test case planned and must fail before implementation.
 - AC-005: RED test case planned and must fail before implementation.
+- AC-006: Slack alert on publish failure. Marked as Partial / Requiring runtime smoke because direct live execution depends on production credentials.

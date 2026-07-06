@@ -12,7 +12,13 @@ import type {
   CommentIngestEvent,
   CanonicalEventEnvelope,
   DirectMessageIngestEvent,
-  DirectMessageReplyRequestedEvent
+  DirectMessageReplyRequestedEvent,
+  MediaAssetIngestRequestedEvent,
+  MediaAssetOptimizeRequestedEvent,
+  PublishTiktokRequestedEvent,
+  PublishTiktokValidatedEvent,
+  PublishTiktokExecuteEvent,
+  PublishTiktokStatusCheckEvent
 } from "@mediaops/shared-contracts";
 import { assertNoForbiddenFields } from "@mediaops/shared-contracts";
 import { CANONICAL_TOPIC_EXCHANGE } from "./topologyConfig.js";
@@ -47,6 +53,10 @@ export interface QueuePublisher {
   publishFacebookRequest(message: PublishFacebookRequestedEvent, messageId: string): Promise<void>;
   publishFacebookValidated(message: PublishFacebookValidatedEvent, messageId: string): Promise<void>;
   publishFacebookExecute(message: PublishFacebookExecuteEvent, messageId: string): Promise<void>;
+  publishTiktokRequest(message: PublishTiktokRequestedEvent, messageId: string): Promise<void>;
+  publishTiktokValidated(message: PublishTiktokValidatedEvent, messageId: string): Promise<void>;
+  publishTiktokExecute(message: PublishTiktokExecuteEvent, messageId: string): Promise<void>;
+  publishTiktokStatusCheck(message: PublishTiktokStatusCheckEvent, messageId: string, delayMs?: number): Promise<void>;
   publishSlackAlert(message: Record<string, unknown>, messageId: string, correlationId?: string): Promise<void>;
   publishSlackCommandAction(message: SlackCommandActionEvent, messageId: string): Promise<void>;
   publishSlackCommentAction(message: SlackCommentActionEvent, messageId: string): Promise<void>;
@@ -56,6 +66,8 @@ export interface QueuePublisher {
   publishDirectMessageReplyRequested(message: DirectMessageReplyRequestedEvent, messageId: string): Promise<void>;
   /** US-014: Publish a canonical event to the mediaops.events.topic exchange */
   publishCanonicalEvent(envelope: CanonicalEventEnvelope, routingKey: string): Promise<void>;
+  publishMediaAssetIngestRequested(message: MediaAssetIngestRequestedEvent, messageId: string): Promise<void>;
+  publishMediaAssetOptimizeRequested(message: MediaAssetOptimizeRequestedEvent, messageId: string): Promise<void>;
 }
 
 export async function createRabbitMqPublisher(
@@ -98,6 +110,16 @@ export async function createRabbitMqPublisher(
   await channel.assertExchange(publishExchange, "topic", { durable: true });
   await channel.assertQueue(publishQueue, { durable: true });
   await channel.bindQueue(publishQueue, publishExchange, publishRoutingKey);
+
+  // TikTok publish queues assertions
+  await channel.assertQueue("publish.tiktok.requested", { durable: true });
+  await channel.bindQueue("publish.tiktok.requested", publishExchange, "publish.tiktok.requested");
+  await channel.assertQueue("publish.tiktok.validated", { durable: true });
+  await channel.bindQueue("publish.tiktok.validated", publishExchange, "publish.tiktok.validated");
+  await channel.assertQueue("publish.tiktok.execute", { durable: true });
+  await channel.bindQueue("publish.tiktok.execute", publishExchange, "publish.tiktok.execute");
+  await channel.assertQueue("publish.tiktok.status_check", { durable: true });
+  await channel.bindQueue("publish.tiktok.status_check", publishExchange, "publish.tiktok.status_check");
   await channel.assertExchange(alertsExchange, "topic", { durable: true });
   await channel.assertQueue(slackAlertQueue, { durable: true });
   await channel.bindQueue(slackAlertQueue, alertsExchange, slackAlertRoutingKey);
@@ -301,6 +323,90 @@ export async function createRabbitMqPublisher(
       await trackPublish(message, messageId, "publish.facebook.execute");
     },
 
+    async publishTiktokRequest(message: PublishTiktokRequestedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishTiktokRequest");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(publishExchange, "publish.tiktok.requested", body, {
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: currentUnixTimestampSeconds()
+      });
+      if (!ok) await new Promise((resolve) => channel.once("drain", resolve));
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, "publish.tiktok.requested");
+    },
+
+    async publishTiktokValidated(message: PublishTiktokValidatedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishTiktokValidated");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(publishExchange, "publish.tiktok.validated", body, {
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: currentUnixTimestampSeconds()
+      });
+      if (!ok) await new Promise((resolve) => channel.once("drain", resolve));
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, "publish.tiktok.validated");
+    },
+
+    async publishTiktokExecute(message: PublishTiktokExecuteEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishTiktokExecute");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(publishExchange, "publish.tiktok.execute", body, {
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: currentUnixTimestampSeconds()
+      });
+      if (!ok) await new Promise((resolve) => channel.once("drain", resolve));
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, "publish.tiktok.execute");
+    },
+
+    async publishTiktokStatusCheck(message: PublishTiktokStatusCheckEvent, messageId: string, delayMs?: number): Promise<void> {
+      assertNoForbiddenFields(message, "publishTiktokStatusCheck");
+      const body = Buffer.from(JSON.stringify(message));
+      
+      if (delayMs) {
+        const delayQueue = `publish.tiktok.status_check.delay.${delayMs}`;
+        await channel.assertQueue(delayQueue, {
+          durable: true,
+          deadLetterExchange: publishExchange,
+          deadLetterRoutingKey: "publish.tiktok.status_check",
+          messageTtl: delayMs
+        });
+        const ok = channel.sendToQueue(delayQueue, body, {
+          contentType: JSON_CONTENT_TYPE,
+          deliveryMode: PERSISTENT_DELIVERY_MODE,
+          messageId,
+          correlationId: message.correlation_id,
+          type: message.event_type,
+          timestamp: currentUnixTimestampSeconds()
+        });
+        if (!ok) await new Promise((resolve) => channel.once("drain", resolve));
+      } else {
+        const ok = channel.publish(publishExchange, "publish.tiktok.status_check", body, {
+          contentType: JSON_CONTENT_TYPE,
+          deliveryMode: PERSISTENT_DELIVERY_MODE,
+          messageId,
+          correlationId: message.correlation_id,
+          type: message.event_type,
+          timestamp: currentUnixTimestampSeconds()
+        });
+        if (!ok) await new Promise((resolve) => channel.once("drain", resolve));
+      }
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, "publish.tiktok.status_check");
+    },
+
     async publishSlackCommandAction(message: SlackCommandActionEvent, messageId: string): Promise<void> {
       assertNoForbiddenFields(message, "publishSlackCommandAction");
       const body = Buffer.from(JSON.stringify(message));
@@ -436,6 +542,46 @@ export async function createRabbitMqPublisher(
     async publishDirectMessageReplyRequested(message: DirectMessageReplyRequestedEvent, messageId: string): Promise<void> {
       assertNoForbiddenFields(message, "publishDirectMessageReplyRequested");
       assertNoForbiddenFields(message.payload, "publishDirectMessageReplyRequested.payload");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, message.event_type, body, {
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: currentUnixTimestampSeconds()
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, message.event_type);
+    },
+
+    async publishMediaAssetIngestRequested(message: MediaAssetIngestRequestedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishMediaAssetIngestRequested");
+      const body = Buffer.from(JSON.stringify(message));
+      const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, message.event_type, body, {
+        contentType: JSON_CONTENT_TYPE,
+        deliveryMode: PERSISTENT_DELIVERY_MODE,
+        messageId,
+        correlationId: message.correlation_id,
+        type: message.event_type,
+        timestamp: currentUnixTimestampSeconds()
+      });
+
+      if (!ok) {
+        await new Promise((resolve) => channel.once("drain", resolve));
+      }
+
+      await channel.waitForConfirms();
+      await trackPublish(message, messageId, message.event_type);
+    },
+
+    async publishMediaAssetOptimizeRequested(message: MediaAssetOptimizeRequestedEvent, messageId: string): Promise<void> {
+      assertNoForbiddenFields(message, "publishMediaAssetOptimizeRequested");
       const body = Buffer.from(JSON.stringify(message));
       const ok = channel.publish(CANONICAL_TOPIC_EXCHANGE, message.event_type, body, {
         contentType: JSON_CONTENT_TYPE,
